@@ -36,28 +36,31 @@
     <ClCompile Include="Ctx.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="Jump.c">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="Scan.c">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="Lock.c">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Stack.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="I386\StackI386.c">
-      <Filter>Source Files\I386</Filter>
-    </ClCompile>
-    <ClCompile Include="AMD64\StackAMD64.c">
-      <Filter>Source Files\AMD64</Filter>
-    </ClCompile>
     <ClCompile Include="Except.c">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Reload.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Space.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="AMD64\SpaceAMD64.c">
+      <Filter>Source Files\AMD64</Filter>
+    </ClCompile>
+    <ClCompile Include="I386\SpaceI386.c">
+      <Filter>Source Files\I386</Filter>
+    </ClCompile>
+    <ClCompile Include="Rtx.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Detours.c">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -102,13 +105,7 @@
     <ClInclude Include="Ctx.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Jump.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="Scan.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="Lock.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Stack.h">
@@ -118,6 +115,15 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Reload.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Space.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Rtx.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Detours.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

@@ -1,6 +1,6 @@
 /*
 *
-* Copyright (c) 2018 by blindtiger. All rights reserved.
+* Copyright (c) 2019 by blindtiger. All rights reserved.
 *
 * The contents of this file are subject to the Mozilla Public License Version
 * 2.0 (the "License"); you may not use this file except in compliance with
@@ -19,13 +19,115 @@
 #ifndef _RELOAD_H_
 #define _RELOAD_H_
 
+#include <devicedefs.h>
+#include <dump.h>
+
+#include "Space.h"
+
 #ifdef __cplusplus
 /* Assume byte packing throughout */
 extern "C" {
 #endif	/* __cplusplus */
 
+#define BinDirectory "H:\\Labs\\Sefirot\\Build\\Bins\\"
+
 #define SystemDirectory L"\\SystemRoot\\System32\\"
-#define Wx86SystemDirectory L"\\SystemRoot\\SysWOW64\\"
+#define Wow64SystemDirectory L"\\SystemRoot\\SysWOW64\\"
+
+    typedef struct _RELOADER_PARAMETER_BLOCK {
+        KDDEBUGGER_DATA64 DebuggerDataBlock;
+        KDDEBUGGER_DATA_ADDITION64 DebuggerDataAdditionBlock;
+
+        PKLDR_DATA_TABLE_ENTRY KernelDataTableEntry;
+
+        PKLDR_DATA_TABLE_ENTRY CoreDataTableEntry;
+
+        PVOID PrivateHeader;
+
+        PVOID CpuControlBlock;
+        PKLDR_DATA_TABLE_ENTRY RootDataTableEntry;
+
+        BOOLEAN DeployRoot;
+        BOOLEAN DeployPatchGuard;
+        CCHAR Phase;
+        CCHAR NumberProcessors;
+
+        ULONG BuildNumber;
+
+        struct _FUNCTION_TABLE * InvertedFunctionTable;
+
+#ifdef _WIN64
+        PMMPTE PxeBase;
+        PMMPTE PxeTop;
+
+        PMMPTE PpeBase;
+        PMMPTE PpeTop;
+#endif // _WIN64
+
+        PMMPTE PdeBase;
+        PMMPTE PdeTop;
+
+        PMMPTE PteBase;
+        PMMPTE PteTop;
+
+        LIST_ENTRY LoadedPrivateImageList;
+
+        KSERVICE_TABLE_DESCRIPTOR * ServiceDescriptorTable;
+        KSERVICE_TABLE_DESCRIPTOR * ServiceDescriptorTableShadow;
+
+        USHORT OffsetKThreadTrapFrame;
+
+        NTSTATUS
+        (NTAPI * PspCreateThread)(
+            __out PHANDLE ThreadHandle,
+            __in ACCESS_MASK DesiredAccess,
+            __in_opt POBJECT_ATTRIBUTES ObjectAttributes,
+            __in HANDLE ProcessHandle,
+            __in PEPROCESS ProcessPointer,
+            __in_opt PVOID Reserved,
+            __in_opt PLARGE_INTEGER Cookie,
+            __out_opt PCLIENT_ID ClientId,
+            __in_opt PCONTEXT ThreadContext,
+            __in_opt PINITIAL_TEB InitialTeb,
+            __in BOOLEAN CreateSuspended,
+            __in_opt PKSTART_ROUTINE StartRoutine,
+            __in PVOID StartContext
+            );
+
+        PEX_CALLBACK_ROUTINE_BLOCK
+        (NTAPI * ExReferenceCallBackBlock)(
+            __inout PEX_CALLBACK CallBack
+            );
+
+        PEX_CALLBACK_FUNCTION
+        (NTAPI * ExGetCallBackBlockRoutine)(
+            __in PEX_CALLBACK_ROUTINE_BLOCK CallBackBlock
+            );
+
+        BOOLEAN
+        (NTAPI * ExCompareExchangeCallBack)(
+            __inout PEX_CALLBACK CallBack,
+            __in PEX_CALLBACK_ROUTINE_BLOCK NewBlock,
+            __in PEX_CALLBACK_ROUTINE_BLOCK OldBlock
+            );
+
+        VOID
+        (NTAPI * ExDereferenceCallBackBlock)(
+            __inout PEX_CALLBACK CallBack,
+            __in PEX_CALLBACK_ROUTINE_BLOCK CallBackBlock
+            );
+
+        PVOID WorkerObject;
+
+#ifdef _WIN64
+        PVOID Wx86WorkerObject;
+#endif // _WIN64
+
+        LIST_ENTRY FreeObjectList;
+        LIST_ENTRY ObjectList;
+
+        // PATCHGUARD_BLOCK PatchGuardBlock;
+    } RELOADER_PARAMETER_BLOCK, *PRELOADER_PARAMETER_BLOCK;
 
     ULONG
         NTAPI
@@ -74,7 +176,7 @@ extern "C" {
     VOID
         NTAPI
         InitializeLoadedModuleList(
-            __in PKLDR_DATA_TABLE_ENTRY DataTableEntry
+            __in PRELOADER_PARAMETER_BLOCK Block
         );
 
     NTSTATUS
@@ -113,6 +215,12 @@ extern "C" {
             __in_opt ULONG ProcedureNumber
         );
 
+    PVOID
+        NTAPI
+        NameToAddress(
+            __in PSTR String
+        );
+
     PKLDR_DATA_TABLE_ENTRY
         NTAPI
         LoadKernelPrivateImage(
@@ -126,6 +234,27 @@ extern "C" {
         UnloadKernelPrivateImage(
             __in PKLDR_DATA_TABLE_ENTRY DataTableEntry
         );
+
+    typedef struct _DUMP_WORKER {
+        WORK_QUEUE_ITEM Worker;
+        PVOID ImageBase;
+        SIZE_T ImageSize;
+        LARGE_INTEGER Interval;
+    }DUMP_WORKER, *PDUMP_WORKER;
+
+    NTSTATUS
+        NTAPI
+        DumpImage(
+            __in PDUMP_WORKER DumpWorker
+        );
+
+    NTSTATUS
+        NTAPI
+        DumpFile(
+            __in PUNICODE_STRING ImageFIleName
+        );
+
+    extern PRELOADER_PARAMETER_BLOCK ReloaderBlock;
 
 #ifdef __cplusplus
 }

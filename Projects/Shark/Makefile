@@ -50,17 +50,18 @@ ASOBJS = \
 CCARCHOBJS = \
     $(OBJD)\PatchGuard$(ARCTARG).obj \
     $(OBJD)\PatchGuardInline$(ARCTARG).obj \
-    $(OBJD)\Stack$(ARCTARG).obj
+    $(OBJD)\Space$(ARCTARG).obj
 
 CCOBJS = \
     $(OBJD)\$(PROJ).obj \
     $(OBJD)\Ctx.obj \
+    $(OBJD)\Detours.obj \
     $(OBJD)\Except.obj \
-    $(OBJD)\Jump.obj \
-    $(OBJD)\Lock.obj \
     $(OBJD)\PatchGuard.obj \
     $(OBJD)\Reload.obj \
+    $(OBJD)\Rtx.obj \
     $(OBJD)\Scan.obj \
+    $(OBJD)\Space.obj \
     $(OBJD)\Stack.obj
     
 RCOBJS = $(OBJD)\$(PROJ).res
@@ -71,16 +72,17 @@ PROJSRCS = \
     $(ARCTARG)\$(ARCTARG).asm \
     $(ARCTARG)\PatchGuard$(ARCTARG).c \
     $(ARCTARG)\PatchGuardInline$(ARCTARG).c \
-    $(ARCTARG)\Stack$(ARCTARG).c \
+    $(ARCTARG)\Space$(ARCTARG).c \
     $(PROJ).c \
     Ctx.c \
     Cmp$(ARCTARG).asm \
+    Detours.c \
     Except.c \
-    Jump.c \
-    Lock.c \
     PatchGuard.c \
     Reload.c \
+    Rtx.c \
     Scan.c \
+    Space.c \
     Stack.c
 
 !if "$(ARCTARG)" == "I386"
@@ -119,7 +121,7 @@ INCS = \
     /I$(PROJD)
 
 DEFS = /DUNICODE /D_UNICODE $(TARGDEFS) /DCONDITION_HANDLING=1 /DNT_INST=0 /DWIN32=100 /D_NT1X_=100 /DWINNT=1 \
-    /DDBG=1 /DDEVL=1 /DNDEBUG /D_NTSYSHARK_ /DNT_SMT /DNTOS_KERNEL_RUNTIME=1 /D_NTDRIVER_
+    /DDBG=1 /DDEVL=1 /DNDEBUG /D_NTSYSTEM_ /DNT_SMT /DNTOS_KERNEL_RUNTIME=1 /D_NTDRIVER_
 
 COPTS = /Z7 /Zl /Zp8 /Gy /cbstring /W3 /WX /GR- /GF /GS $(TARGCOPTS)
 COMPILERWARNINGS = /FI$(LABS)\WRK\base\ntos\BUILD\WARNING.h /FI$(SLND)\Include\WARNING.h

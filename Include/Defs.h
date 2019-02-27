@@ -24,9 +24,9 @@
 extern "C" {
 #endif	/* __cplusplus */
 
-#ifndef VMP
-// #define VMP
-#endif // !VMP
+#ifndef PUBLIC
+    // #define PUBLIC
+#endif // !PUBLIC
 
 #ifndef NTOS_KERNEL_RUNTIME
 #include <nt.h>
@@ -42,11 +42,16 @@ extern "C" {
 
 #ifdef _WIN64
 #include <wow64t.h>
+#include <wow64.h>
 #endif // _WIN64
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <tchar.h>
+
+#include <arccodes.h>
+
+#include <log.h>
 
 #ifdef __cplusplus
 }

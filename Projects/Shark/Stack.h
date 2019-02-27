@@ -32,8 +32,30 @@ extern "C" {
     DECLSPEC_NOINLINE
         ULONG
         NTAPI
+        WalkFrameChainEx(
+            __out PCALLERS Callers,
+            __in ULONG Count
+        );
+
+    DECLSPEC_NOINLINE
+        ULONG
+        NTAPI
         WalkFrameChain(
             __out PCALLERS Callers,
+            __in ULONG Count
+        );
+
+    VOID
+        NTAPI
+        PrintSymbol(
+            __in PVOID Address
+        );
+
+    VOID
+        NTAPI
+        PrintFrameChain(
+            __in PCALLERS Callers,
+            __in_opt ULONG FramesToSkip,
             __in ULONG Count
         );
 
