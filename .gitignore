@@ -2,7 +2,6 @@
 # Compiled binaries.
 #
 Build/**
-Debug/**
 
 #
 # Visual Studio files.
@@ -10,6 +9,8 @@ Debug/**
 .vs/**
 *.VC.db
 *.VC.opendb
+*.sdf
+*.suo
 
 #
 # VS Code files.

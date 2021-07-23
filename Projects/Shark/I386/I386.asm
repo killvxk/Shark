@@ -1,6 +1,6 @@
 ;
 ;
-; Copyright (c) 2019 by blindtiger. All rights reserved.
+; Copyright (c) 2015 - 2021 by blindtiger. All rights reserved.
 ;
 ; The contents of this file are subject to the Mozilla Public License Version
 ; 2.0 (the "License"); you may not use this file except in compliance with
@@ -78,118 +78,41 @@ _TEXT$00    SEGMENT PAGE 'CODE'
         
     stdENDP __GetPteAddressPae
     
-    cPublicProc __GetVirtualAddressMappedByPte, 1
+    cPublicProc __GetVaMappedByPte, 1
     
         mov eax, [esp + 4]
         shl eax, 0ah
 
-        stdRET __GetVirtualAddressMappedByPte
+        stdRET __GetVaMappedByPte
         
-    stdENDP __GetVirtualAddressMappedByPte
+    stdENDP __GetVaMappedByPte
     
-    cPublicProc __GetVirtualAddressMappedByPtePae, 1
+    cPublicProc __GetVaMappedByPtePae, 1
     
         mov eax, [esp + 4]
         shl eax, 9
 
-        stdRET __GetVirtualAddressMappedByPtePae
+        stdRET __GetVaMappedByPtePae
         
-    stdENDP __GetVirtualAddressMappedByPtePae
+    stdENDP __GetVaMappedByPtePae
     
-    cPublicProc __GetVirtualAddressMappedByPde, 1
+    cPublicProc __GetVaMappedByPde, 1
     
         mov eax, [esp + 4]
         shl eax, 14h
 
-        stdRET __GetVirtualAddressMappedByPde
+        stdRET __GetVaMappedByPde
         
-    stdENDP __GetVirtualAddressMappedByPde
+    stdENDP __GetVaMappedByPde
     
-    cPublicProc __GetVirtualAddressMappedByPdePae, 1
+    cPublicProc __GetVaMappedByPdePae, 1
     
         mov eax, [esp + 4]
         shl eax, 12h
 
-        stdRET __GetVirtualAddressMappedByPdePae
+        stdRET __GetVaMappedByPdePae
         
-    stdENDP __GetVirtualAddressMappedByPdePae
-    
-    cPublicProc __MultipleDispatcher, 4
-
-        mov edi, edi
-
-        push ebp
-        mov ebp, esp
-
-        mov eax, [ebp + 8]
-
-        test eax, eax
-        jz @f
-
-        push [ebp + 14h]
-        push [ebp + 10h]
-        push [ebp + 0ch]
-
-        call eax
-        
-        mov esp, ebp
-        pop ebp
-        
-        stdRET __MultipleDispatcher
-        
-@@ :    
-        mov eax, [ebp + 0ch]
-
-        test eax, eax
-        jz @f
-
-        push [ebp + 14h]
-        push [ebp + 10h]
-
-        call eax
-        
-        mov esp, ebp
-        pop ebp
-        
-        stdRET __MultipleDispatcher
-        
-@@ :    
-        mov eax, [ebp + 10h]
-
-        test eax, eax
-        jz @f
-
-        push [ebp + 14h]
-
-        call eax
-        
-        mov esp, ebp
-        pop ebp
-        
-        stdRET __MultipleDispatcher
-        
-@@ :    
-        mov eax, [ebp + 14h]
-
-        test eax, eax
-        jz error
-
-        call eax
-        
-        mov esp, ebp
-        pop ebp
-        
-        stdRET __MultipleDispatcher
-        
-error : 
-        xor eax, eax
-
-        mov esp, ebp
-        pop ebp
-        
-        stdRET __MultipleDispatcher
-        
-    stdENDP __MultipleDispatcher
+    stdENDP __GetVaMappedByPdePae
     
 _TEXT$00    ends
 

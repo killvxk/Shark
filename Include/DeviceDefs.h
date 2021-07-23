@@ -1,6 +1,6 @@
 /*
 *
-* Copyright (c) 2015-2018 by blindtiger ( blindtiger@foxmail.com )
+* Copyright (c) 2015 - 2021 by blindtiger ( blindtiger@foxmail.com )
 *
 * The contents of this file are subject to the Mozilla Public License Version
 * 2.0 (the "License"); you may not use this file except in compliance with
@@ -27,9 +27,42 @@ extern "C" {
 #include <devioctl.h>
 
 #define LOADER_STRING L"Shark.sys"
-#define SERVICE_STRING L"Shark"
-#define DEVICE_STRING L"\\Device\\Shark"
-#define SYMBOLIC_STRING L"\\DosDevices\\Shark"
+#define SERVICE_STRING L"{107180F9-013A-45B4-BCE5-F046892D7426}"
+#define DEVICE_STRING L"\\Device\\{94A4D943-9D91-4DFA-AA05-5486E61BF500}"
+#define SYMBOLIC_STRING L"\\DosDevices\\{00081140-C743-454D-917B-C3F437C770DC}"
+
+    FORCEINLINE
+        u
+        NTAPI
+        GuardCall(
+            __in_opt PGKERNEL_ROUTINE KernelRoutine,
+            __in_opt PGSYSTEM_ROUTINE SystemRoutine,
+            __in_opt PGRUNDOWN_ROUTINE RundownRoutine,
+            __in_opt PGNORMAL_ROUTINE NormalRoutine
+        )
+    {
+        u Result = 0;
+
+        __try {
+            if (NULL != KernelRoutine) {
+                Result = KernelRoutine(SystemRoutine, RundownRoutine, NormalRoutine);
+            }
+            else if (NULL != SystemRoutine) {
+                Result = SystemRoutine(RundownRoutine, NormalRoutine);
+            }
+            else if (NULL != RundownRoutine) {
+                Result = RundownRoutine(NormalRoutine);
+            }
+            else if (NULL != NormalRoutine) {
+                Result = NormalRoutine();
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {
+            NOTHING;
+        }
+
+        return Result;
+    }
 
 #ifdef __cplusplus
 }

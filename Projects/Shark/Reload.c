@@ -1,6 +1,6 @@
 /*
 *
-* Copyright (c) 2019 by blindtiger. All rights reserved.
+* Copyright (c) 2015 - 2021 by blindtiger. All rights reserved.
 *
 * The contents of this file are subject to the Mozilla Public License Version
 * 2.0 (the "License")); you may not use this file except in compliance with
@@ -20,84 +20,46 @@
 
 #include "Reload.h"
 
-#include "Detour.h"
+#include "Ctx.h"
+#include "Guard.h"
 #include "Except.h"
 #include "Scan.h"
 
 PGPBLOCK GpBlock;
 
-PIMAGE_SECTION_HEADER
-NTAPI
-SectionTableFromVirtualAddress(
-    __in PVOID ImageBase,
-    __in PVOID Address
-)
-{
-    PIMAGE_NT_HEADERS NtHeaders = NULL;
-    ULONG Index = 0;
-    ULONG Offset = 0;
-    PIMAGE_SECTION_HEADER FountSection = NULL;
-    PIMAGE_SECTION_HEADER NtSection = NULL;
-    ULONG SizeToLock = 0;
-
-    NtHeaders = RtlImageNtHeader(ImageBase);
-
-    if (NULL != NtHeaders) {
-        FountSection = IMAGE_FIRST_SECTION(NtHeaders);
-        Offset = (ULONG)((ULONG_PTR)Address - (ULONG_PTR)ImageBase);
-
-        for (Index = 0;
-            Index < NtHeaders->FileHeader.NumberOfSections;
-            Index++) {
-            SizeToLock = max(
-                FountSection[Index].SizeOfRawData,
-                FountSection[Index].Misc.VirtualSize);
-
-            if (Offset >= FountSection[Index].VirtualAddress &&
-                Offset < FountSection[Index].VirtualAddress + SizeToLock) {
-                NtSection = &FountSection[Index];
-                break;
-            }
-        }
-    }
-
-    return NtSection;
-}
-
-VOID
+void
 NTAPI
 InitializeGpBlock(
     __in PGPBLOCK Block
 )
 {
     PKLDR_DATA_TABLE_ENTRY DataTableEntry = NULL;
-    UNICODE_STRING KernelString = { 0 };
-    PIMAGE_NT_HEADERS NtHeaders = NULL;
+    UNICODE_STRING String = { 0 };
     PIMAGE_SECTION_HEADER NtSection = NULL;
     PCHAR SectionBase = NULL;
-    ULONG SizeToLock = 0;
-    PCHAR ControlPc = NULL;
+    u32 SizeToLock = 0;
+    u8ptr ControlPc = NULL;
     CONTEXT Context = { 0 };
     PDUMP_HEADER DumpHeader = NULL;
     PKDDEBUGGER_DATA64 KdDebuggerDataBlock = NULL;
     PKDDEBUGGER_DATA_ADDITION64 KdDebuggerDataAdditionBlock = NULL;
-    UNICODE_STRING RoutineString = { 0 };
-    PVOID RoutineAddress = NULL;
+    ptr RoutineAddress = NULL;
 
 #ifndef _WIN64
     // 6A 01                            push 1
     // 68 A0 D7 69 00                   push offset _PsLoadedModuleResource
     // E8 FB E4 E9 FF                   call _ExAcquireResourceSharedLite@8
 
-    CHAR PsLoadedModuleResource[] = "6a 01 68 ?? ?? ?? ?? e8 ?? ?? ?? ??";
+    u8 PsLoadedModuleResource[] = "6A 01 68 ?? ?? ?? ?? E8";
 
-    ULONG64 CaptureContext[] = {
-        0x8d53000002d0ec81, 0x0000a4838f04245c, 0x8c00000094838c00, 0xc8938c000000bc8b,
-        0x0000989b8c000000, 0x8c00000090a38c00, 0xb083890000008cab, 0x0000ac8b89000000,
-        0x89000000a8938900, 0xa0b389000000b4ab, 0x00009cbb89000000, 0x000000c0838f9c00,
-        0x8389000002dc838d, 0x02d4838b000000c4, 0x000000b883890000, 0x8b038900010007b8,
-        0x8b0b8d000002d093, 0xff5152000002d883, 0xccccccccccccccd0
-    };
+    // 8B DA                            mov ebx, edx
+    // F6 05 C8 E0 52 00 40             test byte ptr ds:dword_52E0C8, 40h
+    // 0F 95 45 12                      setnz byte ptr [ebp + 12h]
+    // 0F 85 8C 03 00 00                jnz loc_435C04
+    // FF D3                            call ebx
+
+    u8 PerfGlobalGroupMask[] =
+        "8B DA F6 05 ?? ?? ?? ?? 40 0F 95 45 ?? 0F 85 ?? ?? ?? ?? FF D3";
 #else
     // 48 89 A3 D8 01 00 00             mov [rbx + 1D8h], rsp
     // 8B F8                            mov edi, eax
@@ -107,101 +69,209 @@ InitializeGpBlock(
     // 4C 8D 15 C7 20 23 00             lea r10, KeServiceDescriptorTable
     // 4C 8D 1D 00 21 23 00             lea r11, KeServiceDescriptorTableShadow
 
-    CHAR KiSystemCall64[] =
-        "48 89 a3 ?? ?? ?? ?? 8b f8 c1 ef 07 83 e7 20 25 ff 0f 00 00 4c 8d 15 ?? ?? ?? ?? 4c 8d 1d ?? ?? ?? ??";
+    u8 KiSystemCall64[] =
+        "48 89 A3 ?? ?? ?? ?? 8B F8 C1 EF 07 83 E7 20 25 FF 0F 00 00 4C 8D 15 ?? ?? ?? ?? 4C 8D 1D";
+
+    // F7 05 3E C0 2D 00 40 00 00 00    test dword ptr cs:PerfGlobalGroupMask + 8, 40h
+    // 0F 85 56 02 00 00                jnz loc_14007A2A6
+    // 41 FF D2                         call r10
+
+    u8 PerfGlobalGroupMask[] =
+        "F7 05 ?? ?? ?? ?? 40 00 00 00 0F 85";
 
     // 48 8D 0D FD DA 19 00             rcx, PsLoadedModuleResource
     // E8 B8 B8 E3 FF call              ExReleaseResourceLite
 
-    CHAR PsLoadedModuleResource[] = "48 8d 0d ?? ?? ?? ?? e8 ?? ?? ?? ??";
-
-    ULONG64 CaptureContext[] = {
-        0x51000004d0ec8148, 0x80818f08244c8d48, 0x598c38498c000000, 0x8c42518c3c418c3a,
-        0x41894840698c3e61, 0x0000008891894878, 0x4800000090998948, 0x8948000004e8818d,
-        0xa989480000009881, 0xa8b18948000000a0, 0x00b0b98948000000, 0x0000b881894c0000,
-        0x000000c089894c00, 0x4c000000c891894c, 0x894c000000d09989, 0xa9894c000000d8a1,
-        0xe8b1894c000000e0, 0x00f0b9894c000000, 0x00010081ae0f0000, 0x0001a0817f0f6600,
-        0x0001b0897f0f6600, 0x0001c0917f0f6600, 0x0001d0997f0f6600, 0x0001e0a17f0f6600,
-        0x0001f0a97f0f6600, 0x000200b17f0f6600, 0x000210b97f0f6600, 0x0220817f0f446600,
-        0x30897f0f44660000, 0x917f0f4466000002, 0x7f0f446600000240, 0x0f44660000025099,
-        0x446600000260a17f, 0x6600000270a97f0f, 0x00000280b17f0f44, 0x000290b97f0f4466,
-        0x418f9c3459ae0f00, 0x000004d8818b4844, 0xb8000000f8818948, 0x483041890010000b,
-        0x8d48000004d0918b, 0x000004e0818b4809, 0xccccccccccccd0ff
-    };
+    u8 PsLoadedModuleResource[] = "48 8D 0D ?? ?? ?? ?? E8";
 #endif // !_WIN64
 
-    PsGetVersion(NULL, NULL, &GpBlock->BuildNumber, NULL);
+    Block->Linkage[0] = 0x33;
+    Block->Linkage[1] = 0xc0;
+    Block->Linkage[2] = 0xc3;
 
-    RtlInitUnicodeString(&RoutineString, L"PsInitialSystemProcess");
+    PsGetVersion(NULL, NULL, &Block->BuildNumber, NULL);
 
-    RoutineAddress = MmGetSystemRoutineAddress(&RoutineString);
+#ifdef DEBUG
+    vDbgPrint(
+        "[Shark] [PatchGuard] < %p > BuildNumber\n",
+        Block->BuildNumber);
+#endif // DEBUG
+
+    RtlInitUnicodeString(&String, L"PsInitialSystemProcess");
+
+    RoutineAddress = MmGetSystemRoutineAddress(&String);
 
     RtlCopyMemory(
-        &GpBlock->PsInitialSystemProcess,
+        &Block->PsInitialSystemProcess,
         RoutineAddress,
-        sizeof(PVOID));
+        sizeof(ptr));
 
-    RtlInitUnicodeString(&RoutineString, L"KeNumberProcessors");
+#ifdef DEBUG
+    vDbgPrint(
+        "[Shark] [PatchGuard] < %p > PsInitialSystemProcess\n",
+        Block->PsInitialSystemProcess);
+#endif // DEBUG
 
-    RoutineAddress = MmGetSystemRoutineAddress(&RoutineString);
+    RtlInitUnicodeString(&String, L"KeNumberProcessors");
+
+    RoutineAddress = MmGetSystemRoutineAddress(&String);
 
     RtlCopyMemory(
-        &GpBlock->NumberProcessors,
+        &Block->NumberProcessors,
         RoutineAddress,
-        sizeof(CCHAR));
+        sizeof(u8));
 
-    RtlInitUnicodeString(&RoutineString, L"KeEnterCriticalRegion");
+#ifdef DEBUG
+    vDbgPrint(
+        "[Shark] [PatchGuard] < %p > NumberProcessors\n",
+        Block->NumberProcessors);
+#endif // DEBUG
 
-    GpBlock->KeEnterCriticalRegion = MmGetSystemRoutineAddress(&RoutineString);
+    RtlInitUnicodeString(&String, L"KeEnterCriticalRegion");
 
-    RtlInitUnicodeString(&RoutineString, L"KeLeaveCriticalRegion");
+    Block->KeEnterCriticalRegion = MmGetSystemRoutineAddress(&String);
 
-    GpBlock->KeLeaveCriticalRegion = MmGetSystemRoutineAddress(&RoutineString);
+#ifdef DEBUG
+    vDbgPrint(
+        "[Shark] [PatchGuard] < %p > KeEnterCriticalRegion\n",
+        Block->KeEnterCriticalRegion);
+#endif // DEBUG
 
-    RtlInitUnicodeString(&RoutineString, L"ExAcquireSpinLockShared");
+    RtlInitUnicodeString(&String, L"KeLeaveCriticalRegion");
 
-    GpBlock->ExAcquireSpinLockShared = MmGetSystemRoutineAddress(&RoutineString);
+    Block->KeLeaveCriticalRegion = MmGetSystemRoutineAddress(&String);
 
-    RtlInitUnicodeString(&RoutineString, L"ExReleaseSpinLockShared");
+#ifdef DEBUG
+    vDbgPrint(
+        "[Shark] [PatchGuard] < %p > KeLeaveCriticalRegion\n",
+        Block->KeLeaveCriticalRegion);
+#endif // DEBUG
 
-    GpBlock->ExReleaseSpinLockShared = MmGetSystemRoutineAddress(&RoutineString);
+    RtlInitUnicodeString(&String, L"ExAcquireSpinLockShared");
 
-    RtlInitUnicodeString(&RoutineString, L"DbgPrint");
+    Block->ExAcquireSpinLockShared = MmGetSystemRoutineAddress(&String);
 
-    GpBlock->DbgPrint = MmGetSystemRoutineAddress(&RoutineString);
+#ifdef DEBUG
+    vDbgPrint(
+        "[Shark] [PatchGuard] < %p > ExAcquireSpinLockShared\n",
+        Block->ExAcquireSpinLockShared);
+#endif // DEBUG
 
-    RtlInitUnicodeString(&RoutineString, L"RtlCompareMemory");
+    RtlInitUnicodeString(&String, L"ExReleaseSpinLockShared");
 
-    GpBlock->RtlCompareMemory = MmGetSystemRoutineAddress(&RoutineString);
+    Block->ExReleaseSpinLockShared = MmGetSystemRoutineAddress(&String);
 
-    RtlInitUnicodeString(&RoutineString, L"RtlRestoreContext");
+#ifdef DEBUG
+    vDbgPrint(
+        "[Shark] [PatchGuard] < %p > ExReleaseSpinLockShared\n",
+        Block->ExReleaseSpinLockShared);
+#endif // DEBUG
 
-    GpBlock->RtlRestoreContext = MmGetSystemRoutineAddress(&RoutineString);
+    RtlInitUnicodeString(&String, L"DbgPrint");
 
-    RtlInitUnicodeString(&RoutineString, L"ExQueueWorkItem");
+    Block->DbgPrint = MmGetSystemRoutineAddress(&String);
 
-    GpBlock->ExQueueWorkItem = MmGetSystemRoutineAddress(&RoutineString);
+#ifdef DEBUG
+    vDbgPrint(
+        "[Shark] [PatchGuard] < %p > DbgPrint\n",
+        Block->DbgPrint);
+#endif // DEBUG
 
-    RtlInitUnicodeString(&RoutineString, L"ExFreePoolWithTag");
+    RtlInitUnicodeString(&String, L"RtlCompareMemory");
 
-    GpBlock->ExFreePoolWithTag = MmGetSystemRoutineAddress(&RoutineString);
+    Block->RtlCompareMemory = MmGetSystemRoutineAddress(&String);
 
-    RtlInitUnicodeString(&RoutineString, L"KeBugCheckEx");
+#ifdef DEBUG
+    vDbgPrint(
+        "[Shark] [PatchGuard] < %p > RtlCompareMemory\n",
+        Block->RtlCompareMemory);
+#endif // DEBUG
 
-    GpBlock->KeBugCheckEx = MmGetSystemRoutineAddress(&RoutineString);
+    RtlInitUnicodeString(&String, L"RtlRestoreContext");
 
-    GpBlock->CaptureContext = (PVOID)GpBlock->_CaptureContext;
+    Block->RtlRestoreContext = MmGetSystemRoutineAddress(&String);
 
-    RtlCopyMemory(
-        GpBlock->_CaptureContext,
-        CaptureContext,
-        sizeof(CaptureContext));
+#ifdef DEBUG
+    vDbgPrint(
+        "[Shark] [PatchGuard] < %p > RtlRestoreContext\n",
+        Block->RtlRestoreContext);
+#endif // DEBUG
+
+    RtlInitUnicodeString(&String, L"ExQueueWorkItem");
+
+    Block->ExQueueWorkItem = MmGetSystemRoutineAddress(&String);
+
+#ifdef DEBUG
+    vDbgPrint(
+        "[Shark] [PatchGuard] < %p > ExQueueWorkItem\n",
+        Block->ExQueueWorkItem);
+#endif // DEBUG
+
+    RtlInitUnicodeString(&String, L"ExFreePoolWithTag");
+
+    Block->ExFreePoolWithTag = MmGetSystemRoutineAddress(&String);
+
+#ifdef DEBUG
+    vDbgPrint(
+        "[Shark] [PatchGuard] < %p > ExFreePoolWithTag\n",
+        Block->ExFreePoolWithTag);
+#endif // DEBUG
+
+    RtlInitUnicodeString(&String, L"KeBugCheckEx");
+
+    Block->KeBugCheckEx = MmGetSystemRoutineAddress(&String);
+
+#ifdef DEBUG
+    vDbgPrint(
+        "[Shark] [PatchGuard] < %p > KeBugCheckEx\n",
+        Block->KeBugCheckEx);
+#endif // DEBUG
+
+    RtlInitUnicodeString(&String, L"ExInterlockedRemoveHeadList");
+
+    Block->ExInterlockedRemoveHeadList = MmGetSystemRoutineAddress(&String);
+
+#ifdef DEBUG
+    vDbgPrint(
+        "[Shark] [PatchGuard] < %p > ExInterlockedRemoveHeadList\n",
+        Block->ExInterlockedRemoveHeadList);
+#endif // DEBUG
+
+    RtlInitUnicodeString(&String, L"ExAcquireRundownProtection");
+
+    Block->ExAcquireRundownProtection = MmGetSystemRoutineAddress(&String);
+
+#ifdef DEBUG
+    vDbgPrint(
+        "[Shark] [PatchGuard] < %p > ExAcquireRundownProtection\n",
+        Block->ExAcquireRundownProtection);
+#endif // DEBUG
+
+    RtlInitUnicodeString(&String, L"ExReleaseRundownProtection");
+
+    Block->ExReleaseRundownProtection = MmGetSystemRoutineAddress(&String);
+
+#ifdef DEBUG
+    vDbgPrint(
+        "[Shark] [PatchGuard] < %p > ExReleaseRundownProtection\n",
+        Block->ExReleaseRundownProtection);
+#endif // DEBUG
+
+    RtlInitUnicodeString(&String, L"ExWaitForRundownProtectionRelease");
+
+    Block->ExWaitForRundownProtectionRelease = MmGetSystemRoutineAddress(&String);
+
+#ifdef DEBUG
+    vDbgPrint(
+        "[Shark] [PatchGuard] < %p > ExWaitForRundownProtectionRelease\n",
+        Block->ExWaitForRundownProtectionRelease);
+#endif // DEBUG
 
     Context.ContextFlags = CONTEXT_FULL;
 
     RtlCaptureContext(&Context);
 
-    DumpHeader = ExAllocatePool(NonPagedPool, DUMP_BLOCK_SIZE);
+    DumpHeader = __malloc(DUMP_BLOCK_SIZE);
 
     if (NULL != DumpHeader) {
         KeCapturePersistentThreadState(
@@ -214,172 +284,186 @@ InitializeGpBlock(
             0,
             DumpHeader);
 
-        KdDebuggerDataBlock = (PCHAR)DumpHeader + KDDEBUGGER_DATA_OFFSET;
+        KdDebuggerDataBlock = (u8ptr)DumpHeader + KDDEBUGGER_DATA_OFFSET;
 
         RtlCopyMemory(
-            &GpBlock->DebuggerDataBlock,
+            &Block->DebuggerDataBlock,
             KdDebuggerDataBlock,
             sizeof(KDDEBUGGER_DATA64));
 
         KdDebuggerDataAdditionBlock = (PKDDEBUGGER_DATA_ADDITION64)(KdDebuggerDataBlock + 1);
 
         RtlCopyMemory(
-            &GpBlock->DebuggerDataAdditionBlock,
+            &Block->DebuggerDataAdditionBlock,
             KdDebuggerDataAdditionBlock,
             sizeof(KDDEBUGGER_DATA_ADDITION64));
 
-        GpBlock->PsLoadedModuleList =
-            (PLIST_ENTRY)GpBlock->DebuggerDataBlock.PsLoadedModuleList;
+        Block->PsLoadedModuleList =
+            (PLIST_ENTRY)Block->DebuggerDataBlock.PsLoadedModuleList;
 
-        GpBlock->KernelDataTableEntry = CONTAINING_RECORD(
-            GpBlock->PsLoadedModuleList->Flink,
+        Block->KernelDataTableEntry = CONTAINING_RECORD(
+            Block->PsLoadedModuleList->Flink,
             KLDR_DATA_TABLE_ENTRY,
             InLoadOrderLinks);
 
-#ifndef PUBLIC
-        /// DbgPrint("[Shark] < %p > Header\n", KdDebuggerDataBlock->Header);
-        //DbgPrint("[Shark] < %p > KernBase\n", KdDebuggerDataBlock->KernBase);
-        /// DbgPrint("[Shark] < %p > BreakpointWithStatus\n", KdDebuggerDataBlock->BreakpointWithStatus);
-        /// DbgPrint("[Shark] < %p > SavedContext\n", KdDebuggerDataBlock->SavedContext);
-        /// DbgPrint("[Shark] < %p > ThCallbackStack\n", KdDebuggerDataBlock->ThCallbackStack);
-        /// DbgPrint("[Shark] < %p > NextCallback\n", KdDebuggerDataBlock->NextCallback);
-        /// DbgPrint("[Shark] < %p > FramePointer\n", KdDebuggerDataBlock->FramePointer);
-        // DbgPrint("[Shark] < %p > PaeEnabled\n", KdDebuggerDataBlock->PaeEnabled);
-        /// DbgPrint("[Shark] < %p > KiCallUserMode\n", KdDebuggerDataBlock->KiCallUserMode);
-        /// DbgPrint("[Shark] < %p > KeUserCallbackDispatcher\n", KdDebuggerDataBlock->KeUserCallbackDispatcher);
-        // DbgPrint("[Shark] < %p > PsLoadedModuleList\n", KdDebuggerDataBlock->PsLoadedModuleList);
-        // DbgPrint("[Shark] < %p > PsActiveProcessHead\n", KdDebuggerDataBlock->PsActiveProcessHead);
-        // DbgPrint("[Shark] < %p > PspCidTable\n", KdDebuggerDataBlock->PspCidTable);
-        /// DbgPrint("[Shark] < %p > ExpSystemResourcesList\n", KdDebuggerDataBlock->ExpSystemResourcesList);
-        /// DbgPrint("[Shark] < %p > ExpPagedPoolDescriptor\n", KdDebuggerDataBlock->ExpPagedPoolDescriptor);
-        /// DbgPrint("[Shark] < %p > ExpNumberOfPagedPools\n", KdDebuggerDataBlock->ExpNumberOfPagedPools);
-        /// DbgPrint("[Shark] < %p > KeTimeIncrement\n", KdDebuggerDataBlock->KeTimeIncrement);
-        /// DbgPrint("[Shark] < %p > KeBugCheckCallbackListHead\n", KdDebuggerDataBlock->KeBugCheckCallbackListHead);
-        /// DbgPrint("[Shark] < %p > KiBugcheckData\n", KdDebuggerDataBlock->KiBugcheckData);
-        /// DbgPrint("[Shark] < %p > IopErrorLogListHead\n", KdDebuggerDataBlock->IopErrorLogListHead);
-        /// DbgPrint("[Shark] < %p > ObpRootDirectoryObject\n", KdDebuggerDataBlock->ObpRootDirectoryObject);
-        /// DbgPrint("[Shark] < %p > ObpTypeObjectType\n", KdDebuggerDataBlock->ObpTypeObjectType);
-        /// DbgPrint("[Shark] < %p > MmSystemCacheStart\n", KdDebuggerDataBlock->MmSystemCacheStart);
-        /// DbgPrint("[Shark] < %p > MmSystemCacheEnd\n", KdDebuggerDataBlock->MmSystemCacheEnd);
-        /// DbgPrint("[Shark] < %p > MmSystemCacheWs\n", KdDebuggerDataBlock->MmSystemCacheWs);
-        // DbgPrint("[Shark] < %p > MmPfnDatabase\n", KdDebuggerDataBlock->MmPfnDatabase);
-        /// DbgPrint("[Shark] < %p > MmSystemPtesStart\n", KdDebuggerDataBlock->MmSystemPtesStart);
-        /// DbgPrint("[Shark] < %p > MmSystemPtesEnd\n", KdDebuggerDataBlock->MmSystemPtesEnd);
-        /// DbgPrint("[Shark] < %p > MmSubsectionBase\n", KdDebuggerDataBlock->MmSubsectionBase);
-        /// DbgPrint("[Shark] < %p > MmNumberOfPagingFiles\n", KdDebuggerDataBlock->MmNumberOfPagingFiles);
-        /// DbgPrint("[Shark] < %p > MmLowestPhysicalPage\n", KdDebuggerDataBlock->MmLowestPhysicalPage);
-        /// DbgPrint("[Shark] < %p > MmHighestPhysicalPage\n", KdDebuggerDataBlock->MmHighestPhysicalPage);
-        /// DbgPrint("[Shark] < %p > MmNumberOfPhysicalPages\n", KdDebuggerDataBlock->MmNumberOfPhysicalPages);
-        /// DbgPrint("[Shark] < %p > MmMaximumNonPagedPoolInBytes\n", KdDebuggerDataBlock->MmMaximumNonPagedPoolInBytes);
-        /// DbgPrint("[Shark] < %p > MmNonPagedSystemStart\n", KdDebuggerDataBlock->MmNonPagedSystemStart);
-        /// DbgPrint("[Shark] < %p > MmNonPagedPoolStart\n", KdDebuggerDataBlock->MmNonPagedPoolStart);
-        /// DbgPrint("[Shark] < %p > MmNonPagedPoolEnd\n", KdDebuggerDataBlock->MmNonPagedPoolEnd);
-        /// DbgPrint("[Shark] < %p > MmPagedPoolStart\n", KdDebuggerDataBlock->MmPagedPoolStart);
-        /// DbgPrint("[Shark] < %p > MmPagedPoolEnd\n", KdDebuggerDataBlock->MmPagedPoolEnd);
-        /// DbgPrint("[Shark] < %p > MmPagedPoolInformation\n", KdDebuggerDataBlock->MmPagedPoolInformation);
-        /// DbgPrint("[Shark] < %p > MmPageSize\n", KdDebuggerDataBlock->MmPageSize);
-        /// DbgPrint("[Shark] < %p > MmSizeOfPagedPoolInBytes\n", KdDebuggerDataBlock->MmSizeOfPagedPoolInBytes);
-        /// DbgPrint("[Shark] < %p > MmTotalCommitLimit\n", KdDebuggerDataBlock->MmTotalCommitLimit);
-        /// DbgPrint("[Shark] < %p > MmTotalCommittedPages\n", KdDebuggerDataBlock->MmTotalCommittedPages);
-        /// DbgPrint("[Shark] < %p > MmSharedCommit\n", KdDebuggerDataBlock->MmSharedCommit);
-        /// DbgPrint("[Shark] < %p > MmDriverCommit\n", KdDebuggerDataBlock->MmDriverCommit);
-        /// DbgPrint("[Shark] < %p > MmProcessCommit\n", KdDebuggerDataBlock->MmProcessCommit);
-        /// DbgPrint("[Shark] < %p > MmPagedPoolCommit\n", KdDebuggerDataBlock->MmPagedPoolCommit);
-        /// DbgPrint("[Shark] < %p > MmExtendedCommit\n", KdDebuggerDataBlock->MmExtendedCommit);
-        /// DbgPrint("[Shark] < %p > MmZeroedPageListHead\n", KdDebuggerDataBlock->MmZeroedPageListHead);
-        /// DbgPrint("[Shark] < %p > MmFreePageListHead\n", KdDebuggerDataBlock->MmFreePageListHead);
-        /// DbgPrint("[Shark] < %p > MmStandbyPageListHead\n", KdDebuggerDataBlock->MmStandbyPageListHead);
-        /// DbgPrint("[Shark] < %p > MmModifiedPageListHead\n", KdDebuggerDataBlock->MmModifiedPageListHead);
-        /// DbgPrint("[Shark] < %p > MmModifiedNoWritePageListHead\n", KdDebuggerDataBlock->MmModifiedNoWritePageListHead);
-        /// DbgPrint("[Shark] < %p > MmAvailablePages\n", KdDebuggerDataBlock->MmAvailablePages);
-        /// DbgPrint("[Shark] < %p > MmResidentAvailablePages\n", KdDebuggerDataBlock->MmResidentAvailablePages);
-        /// DbgPrint("[Shark] < %p > PoolTrackTable\n", KdDebuggerDataBlock->PoolTrackTable);
-        /// DbgPrint("[Shark] < %p > NonPagedPoolDescriptor\n", KdDebuggerDataBlock->NonPagedPoolDescriptor);
-        /// DbgPrint("[Shark] < %p > MmHighestUserAddress\n", KdDebuggerDataBlock->MmHighestUserAddress);
-        /// DbgPrint("[Shark] < %p > MmSystemRangeStart\n", KdDebuggerDataBlock->MmSystemRangeStart);
-        /// DbgPrint("[Shark] < %p > MmUserProbeAddress\n", KdDebuggerDataBlock->MmUserProbeAddress);
-        /// DbgPrint("[Shark] < %p > KdPrintCircularBuffer\n", KdDebuggerDataBlock->KdPrintCircularBuffer);
-        /// DbgPrint("[Shark] < %p > KdPrintCircularBufferEnd\n", KdDebuggerDataBlock->KdPrintCircularBufferEnd);
-        /// DbgPrint("[Shark] < %p > KdPrintWritePointer\n", KdDebuggerDataBlock->KdPrintWritePointer);
-        /// DbgPrint("[Shark] < %p > KdPrintRolloverCount\n", KdDebuggerDataBlock->KdPrintRolloverCount);
-        /// DbgPrint("[Shark] < %p > MmLoadedUserImageList\n", KdDebuggerDataBlock->MmLoadedUserImageList);
-        /// DbgPrint("[Shark] < %p > NtBuildLab\n", KdDebuggerDataBlock->NtBuildLab);
-        /// DbgPrint("[Shark] < %p > KiNormalSystemCall\n", KdDebuggerDataBlock->KiNormalSystemCall);
-        /// DbgPrint("[Shark] < %p > KiProcessorBlock\n", KdDebuggerDataBlock->KiProcessorBlock);
-        /// DbgPrint("[Shark] < %p > MmUnloadedDrivers\n", KdDebuggerDataBlock->MmUnloadedDrivers);
-        /// DbgPrint("[Shark] < %p > MmLastUnloadedDriver\n", KdDebuggerDataBlock->MmLastUnloadedDriver);
-        /// DbgPrint("[Shark] < %p > MmTriageActionTaken\n", KdDebuggerDataBlock->MmTriageActionTaken);
-        /// DbgPrint("[Shark] < %p > MmSpecialPoolTag\n", KdDebuggerDataBlock->MmSpecialPoolTag);
-        /// DbgPrint("[Shark] < %p > KernelVerifier\n", KdDebuggerDataBlock->KernelVerifier);
-        /// DbgPrint("[Shark] < %p > MmVerifierData\n", KdDebuggerDataBlock->MmVerifierData);
-        /// DbgPrint("[Shark] < %p > MmAllocatedNonPagedPool\n", KdDebuggerDataBlock->MmAllocatedNonPagedPool);
-        /// DbgPrint("[Shark] < %p > MmPeakCommitment\n", KdDebuggerDataBlock->MmPeakCommitment);
-        /// DbgPrint("[Shark] < %p > MmTotalCommitLimitMaximum\n", KdDebuggerDataBlock->MmTotalCommitLimitMaximum);
-        /// DbgPrint("[Shark] < %p > CmNtCSDVersion\n", KdDebuggerDataBlock->CmNtCSDVersion);
-        /// DbgPrint("[Shark] < %p > MmPhysicalMemoryBlock\n", KdDebuggerDataBlock->MmPhysicalMemoryBlock);
-        /// DbgPrint("[Shark] < %p > MmSessionBase\n", KdDebuggerDataBlock->MmSessionBase);
-        /// DbgPrint("[Shark] < %p > MmSessionSize\n", KdDebuggerDataBlock->MmSessionSize);
-        /// DbgPrint("[Shark] < %p > MmSystemParentTablePage\n", KdDebuggerDataBlock->MmSystemParentTablePage);
-        /// DbgPrint("[Shark] < %p > MmVirtualTranslationBase\n", KdDebuggerDataBlock->MmVirtualTranslationBase);
-        // DbgPrint("[Shark] < %p > OffsetKThreadNextProcessor\n", KdDebuggerDataBlock->OffsetKThreadNextProcessor);
-        // DbgPrint("[Shark] < %p > OffsetKThreadTeb\n", KdDebuggerDataBlock->OffsetKThreadTeb);
-        // DbgPrint("[Shark] < %p > OffsetKThreadKernelStack\n", KdDebuggerDataBlock->OffsetKThreadKernelStack);
-        // DbgPrint("[Shark] < %p > OffsetKThreadInitialStack\n", KdDebuggerDataBlock->OffsetKThreadInitialStack);
-        // DbgPrint("[Shark] < %p > OffsetKThreadApcProcess\n", KdDebuggerDataBlock->OffsetKThreadApcProcess);
-        // DbgPrint("[Shark] < %p > OffsetKThreadState\n", KdDebuggerDataBlock->OffsetKThreadState);
-        // DbgPrint("[Shark] < %p > OffsetKThreadBStore\n", KdDebuggerDataBlock->OffsetKThreadBStore);
-        // DbgPrint("[Shark] < %p > OffsetKThreadBStoreLimit\n", KdDebuggerDataBlock->OffsetKThreadBStoreLimit);
-        // DbgPrint("[Shark] < %p > SizeEProcess\n", KdDebuggerDataBlock->SizeEProcess);
-        // DbgPrint("[Shark] < %p > OffsetEprocessPeb\n", KdDebuggerDataBlock->OffsetEprocessPeb);
-        // DbgPrint("[Shark] < %p > OffsetEprocessParentCID\n", KdDebuggerDataBlock->OffsetEprocessParentCID);
-        // DbgPrint("[Shark] < %p > OffsetEprocessDirectoryTableBase\n", KdDebuggerDataBlock->OffsetEprocessDirectoryTableBase);
-        // DbgPrint("[Shark] < %p > SizePrcb\n", KdDebuggerDataBlock->SizePrcb);
-        // DbgPrint("[Shark] < %p > OffsetPrcbDpcRoutine\n", KdDebuggerDataBlock->OffsetPrcbDpcRoutine);
-        // DbgPrint("[Shark] < %p > OffsetPrcbCurrentThread\n", KdDebuggerDataBlock->OffsetPrcbCurrentThread);
-        // DbgPrint("[Shark] < %p > OffsetPrcbMhz\n", KdDebuggerDataBlock->OffsetPrcbMhz);
-        // DbgPrint("[Shark] < %p > OffsetPrcbCpuType\n", KdDebuggerDataBlock->OffsetPrcbCpuType);
-        // DbgPrint("[Shark] < %p > OffsetPrcbVendorString\n", KdDebuggerDataBlock->OffsetPrcbVendorString);
-        // DbgPrint("[Shark] < %p > OffsetPrcbProcStateContext\n", KdDebuggerDataBlock->OffsetPrcbProcStateContext);
-        // DbgPrint("[Shark] < %p > OffsetPrcbNumber\n", KdDebuggerDataBlock->OffsetPrcbNumber);
-        // DbgPrint("[Shark] < %p > SizeEThread\n", KdDebuggerDataBlock->SizeEThread);
-        /// DbgPrint("[Shark] < %p > KdPrintCircularBufferPtr\n", KdDebuggerDataBlock->KdPrintCircularBufferPtr);
-        /// DbgPrint("[Shark] < %p > KdPrintBufferSize\n", KdDebuggerDataBlock->KdPrintBufferSize);
-        /// DbgPrint("[Shark] < %p > KeLoaderBlock\n", KdDebuggerDataBlock->KeLoaderBlock);
-        // DbgPrint("[Shark] < %p > SizePcr\n", KdDebuggerDataBlock->SizePcr);
-        // DbgPrint("[Shark] < %p > OffsetPcrSelfPcr\n", KdDebuggerDataBlock->OffsetPcrSelfPcr);
-        // DbgPrint("[Shark] < %p > OffsetPcrCurrentPrcb\n", KdDebuggerDataBlock->OffsetPcrCurrentPrcb);
-        // DbgPrint("[Shark] < %p > OffsetPcrContainedPrcb\n", KdDebuggerDataBlock->OffsetPcrContainedPrcb);
-        // DbgPrint("[Shark] < %p > OffsetPcrInitialBStore\n", KdDebuggerDataBlock->OffsetPcrInitialBStore);
-        // DbgPrint("[Shark] < %p > OffsetPcrBStoreLimit\n", KdDebuggerDataBlock->OffsetPcrBStoreLimit);
-        // DbgPrint("[Shark] < %p > OffsetPcrInitialStack\n", KdDebuggerDataBlock->OffsetPcrInitialStack);
-        // DbgPrint("[Shark] < %p > OffsetPcrStackLimit\n", KdDebuggerDataBlock->OffsetPcrStackLimit);
-        // DbgPrint("[Shark] < %p > OffsetPrcbPcrPage\n", KdDebuggerDataBlock->OffsetPrcbPcrPage);
-        // DbgPrint("[Shark] < %p > OffsetPrcbProcStateSpecialReg\n", KdDebuggerDataBlock->OffsetPrcbProcStateSpecialReg);
-        // DbgPrint("[Shark] < %p > GdtR0Code\n", KdDebuggerDataBlock->GdtR0Code);
-        // DbgPrint("[Shark] < %p > GdtR0Data\n", KdDebuggerDataBlock->GdtR0Data);
-        // DbgPrint("[Shark] < %p > GdtR0Pcr\n", KdDebuggerDataBlock->GdtR0Pcr);
-        // DbgPrint("[Shark] < %p > GdtR3Code\n", KdDebuggerDataBlock->GdtR3Code);
-        // DbgPrint("[Shark] < %p > GdtR3Data\n", KdDebuggerDataBlock->GdtR3Data);
-        // DbgPrint("[Shark] < %p > GdtR3Teb\n", KdDebuggerDataBlock->GdtR3Teb);
-        // DbgPrint("[Shark] < %p > GdtLdt\n", KdDebuggerDataBlock->GdtLdt);
-        // DbgPrint("[Shark] < %p > GdtTss\n", KdDebuggerDataBlock->GdtTss);
-        // DbgPrint("[Shark] < %p > Gdt64R3CmCode\n", KdDebuggerDataBlock->Gdt64R3CmCode);
-        // DbgPrint("[Shark] < %p > Gdt64R3CmTeb\n", KdDebuggerDataBlock->Gdt64R3CmTeb);
-        /// DbgPrint("[Shark] < %p > IopNumTriageDumpDataBlocks\n", KdDebuggerDataBlock->IopNumTriageDumpDataBlocks);
-        /// DbgPrint("[Shark] < %p > IopTriageDumpDataBlocks\n", KdDebuggerDataBlock->IopTriageDumpDataBlocks);
+#ifdef DEBUG
+        /// vDbgPrint("[Shark] [Kernel] < %p > Header\n", KdDebuggerDataBlock->Header);
+        //vDbgPrint("[Shark] [Kernel] < %p > KernBase\n", KdDebuggerDataBlock->KernBase);
+        /// vDbgPrint("[Shark] [Kernel] < %p > BreakpointWithStatus\n", KdDebuggerDataBlock->BreakpointWithStatus);
+        /// vDbgPrint("[Shark] [Kernel] < %p > SavedContext\n", KdDebuggerDataBlock->SavedContext);
+        /// vDbgPrint("[Shark] [Kernel] < %p > ThCallbackStack\n", KdDebuggerDataBlock->ThCallbackStack);
+        /// vDbgPrint("[Shark] [Kernel] < %p > NextCallback\n", KdDebuggerDataBlock->NextCallback);
+        /// vDbgPrint("[Shark] [Kernel] < %p > FramePointer\n", KdDebuggerDataBlock->FramePointer);
+        // vDbgPrint("[Shark] [Kernel] < %p > PaeEnabled\n", KdDebuggerDataBlock->PaeEnabled);
+        /// vDbgPrint("[Shark] [Kernel] < %p > KiCallUserMode\n", KdDebuggerDataBlock->KiCallUserMode);
+        /// vDbgPrint("[Shark] [Kernel] < %p > KeUserCallbackDispatcher\n", KdDebuggerDataBlock->KeUserCallbackDispatcher);
+        // vDbgPrint("[Shark] [Kernel] < %p > PsLoadedModuleList\n", KdDebuggerDataBlock->PsLoadedModuleList);
+        // vDbgPrint("[Shark] [Kernel] < %p > PsActiveProcessHead\n", KdDebuggerDataBlock->PsActiveProcessHead);
+        // vDbgPrint("[Shark] [Kernel] < %p > PspCidTable\n", KdDebuggerDataBlock->PspCidTable);
+        /// vDbgPrint("[Shark] [Kernel] < %p > ExpSystemResourcesList\n", KdDebuggerDataBlock->ExpSystemResourcesList);
+        /// vDbgPrint("[Shark] [Kernel] < %p > ExpPagedPoolDescriptor\n", KdDebuggerDataBlock->ExpPagedPoolDescriptor);
+        /// vDbgPrint("[Shark] [Kernel] < %p > ExpNumberOfPagedPools\n", KdDebuggerDataBlock->ExpNumberOfPagedPools);
+        /// vDbgPrint("[Shark] [Kernel] < %p > KeTimeIncrement\n", KdDebuggerDataBlock->KeTimeIncrement);
+        /// vDbgPrint("[Shark] [Kernel] < %p > KeBugCheckCallbackListHead\n", KdDebuggerDataBlock->KeBugCheckCallbackListHead);
+        /// vDbgPrint("[Shark] [Kernel] < %p > KiBugcheckData\n", KdDebuggerDataBlock->KiBugcheckData);
+        /// vDbgPrint("[Shark] [Kernel] < %p > IopErrorLogListHead\n", KdDebuggerDataBlock->IopErrorLogListHead);
+        /// vDbgPrint("[Shark] [Kernel] < %p > ObpRootDirectoryObject\n", KdDebuggerDataBlock->ObpRootDirectoryObject);
+        /// vDbgPrint("[Shark] [Kernel] < %p > ObpTypeObjectType\n", KdDebuggerDataBlock->ObpTypeObjectType);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmSystemCacheStart\n", KdDebuggerDataBlock->MmSystemCacheStart);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmSystemCacheEnd\n", KdDebuggerDataBlock->MmSystemCacheEnd);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmSystemCacheWs\n", KdDebuggerDataBlock->MmSystemCacheWs);
+        // vDbgPrint("[Shark] [Kernel] < %p > MmPfnDatabase\n", KdDebuggerDataBlock->MmPfnDatabase);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmSystemPtesStart\n", KdDebuggerDataBlock->MmSystemPtesStart);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmSystemPtesEnd\n", KdDebuggerDataBlock->MmSystemPtesEnd);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmSubsectionBase\n", KdDebuggerDataBlock->MmSubsectionBase);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmNumberOfPagingFiles\n", KdDebuggerDataBlock->MmNumberOfPagingFiles);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmLowestPhysicalPage\n", KdDebuggerDataBlock->MmLowestPhysicalPage);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmHighestPhysicalPage\n", KdDebuggerDataBlock->MmHighestPhysicalPage);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmNumberOfPhysicalPages\n", KdDebuggerDataBlock->MmNumberOfPhysicalPages);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmMaximumNonPagedPoolInBytes\n", KdDebuggerDataBlock->MmMaximumNonPagedPoolInBytes);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmNonPagedSystemStart\n", KdDebuggerDataBlock->MmNonPagedSystemStart);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmNonPagedPoolStart\n", KdDebuggerDataBlock->MmNonPagedPoolStart);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmNonPagedPoolEnd\n", KdDebuggerDataBlock->MmNonPagedPoolEnd);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmPagedPoolStart\n", KdDebuggerDataBlock->MmPagedPoolStart);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmPagedPoolEnd\n", KdDebuggerDataBlock->MmPagedPoolEnd);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmPagedPoolInformation\n", KdDebuggerDataBlock->MmPagedPoolInformation);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmPageSize\n", KdDebuggerDataBlock->MmPageSize);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmSizeOfPagedPoolInBytes\n", KdDebuggerDataBlock->MmSizeOfPagedPoolInBytes);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmTotalCommitLimit\n", KdDebuggerDataBlock->MmTotalCommitLimit);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmTotalCommittedPages\n", KdDebuggerDataBlock->MmTotalCommittedPages);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmSharedCommit\n", KdDebuggerDataBlock->MmSharedCommit);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmDriverCommit\n", KdDebuggerDataBlock->MmDriverCommit);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmProcessCommit\n", KdDebuggerDataBlock->MmProcessCommit);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmPagedPoolCommit\n", KdDebuggerDataBlock->MmPagedPoolCommit);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmExtendedCommit\n", KdDebuggerDataBlock->MmExtendedCommit);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmZeroedPageListHead\n", KdDebuggerDataBlock->MmZeroedPageListHead);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmFreePageListHead\n", KdDebuggerDataBlock->MmFreePageListHead);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmStandbyPageListHead\n", KdDebuggerDataBlock->MmStandbyPageListHead);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmModifiedPageListHead\n", KdDebuggerDataBlock->MmModifiedPageListHead);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmModifiedNoWritePageListHead\n", KdDebuggerDataBlock->MmModifiedNoWritePageListHead);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmAvailablePages\n", KdDebuggerDataBlock->MmAvailablePages);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmResidentAvailablePages\n", KdDebuggerDataBlock->MmResidentAvailablePages);
+        /// vDbgPrint("[Shark] [Kernel] < %p > PoolTrackTable\n", KdDebuggerDataBlock->PoolTrackTable);
+        /// vDbgPrint("[Shark] [Kernel] < %p > NonPagedPoolDescriptor\n", KdDebuggerDataBlock->NonPagedPoolDescriptor);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmHighestUserAddress\n", KdDebuggerDataBlock->MmHighestUserAddress);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmSystemRangeStart\n", KdDebuggerDataBlock->MmSystemRangeStart);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmUserProbeAddress\n", KdDebuggerDataBlock->MmUserProbeAddress);
+        /// vDbgPrint("[Shark] [Kernel] < %p > KdPrintCircularBuffer\n", KdDebuggerDataBlock->KdPrintCircularBuffer);
+        /// vDbgPrint("[Shark] [Kernel] < %p > KdPrintCircularBufferEnd\n", KdDebuggerDataBlock->KdPrintCircularBufferEnd);
+        /// vDbgPrint("[Shark] [Kernel] < %p > KdPrintWritePointer\n", KdDebuggerDataBlock->KdPrintWritePointer);
+        /// vDbgPrint("[Shark] [Kernel] < %p > KdPrintRolloverCount\n", KdDebuggerDataBlock->KdPrintRolloverCount);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmLoadedUserImageList\n", KdDebuggerDataBlock->MmLoadedUserImageList);
+        /// vDbgPrint("[Shark] [Kernel] < %p > NtBuildLab\n", KdDebuggerDataBlock->NtBuildLab);
+        /// vDbgPrint("[Shark] [Kernel] < %p > KiNormalSystemCall\n", KdDebuggerDataBlock->KiNormalSystemCall);
+        /// vDbgPrint("[Shark] [Kernel] < %p > KiProcessorBlock\n", KdDebuggerDataBlock->KiProcessorBlock);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmUnloadedDrivers\n", KdDebuggerDataBlock->MmUnloadedDrivers);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmLastUnloadedDriver\n", KdDebuggerDataBlock->MmLastUnloadedDriver);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmTriageActionTaken\n", KdDebuggerDataBlock->MmTriageActionTaken);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmSpecialPoolTag\n", KdDebuggerDataBlock->MmSpecialPoolTag);
+        /// vDbgPrint("[Shark] [Kernel] < %p > KernelVerifier\n", KdDebuggerDataBlock->KernelVerifier);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmVerifierData\n", KdDebuggerDataBlock->MmVerifierData);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmAllocatedNonPagedPool\n", KdDebuggerDataBlock->MmAllocatedNonPagedPool);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmPeakCommitment\n", KdDebuggerDataBlock->MmPeakCommitment);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmTotalCommitLimitMaximum\n", KdDebuggerDataBlock->MmTotalCommitLimitMaximum);
+        /// vDbgPrint("[Shark] [Kernel] < %p > CmNtCSDVersion\n", KdDebuggerDataBlock->CmNtCSDVersion);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmPhysicalMemoryBlock\n", KdDebuggerDataBlock->MmPhysicalMemoryBlock);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmSessionBase\n", KdDebuggerDataBlock->MmSessionBase);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmSessionSize\n", KdDebuggerDataBlock->MmSessionSize);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmSystemParentTablePage\n", KdDebuggerDataBlock->MmSystemParentTablePage);
+        /// vDbgPrint("[Shark] [Kernel] < %p > MmVirtualTranslationBase\n", KdDebuggerDataBlock->MmVirtualTranslationBase);
+        // vDbgPrint("[Shark] [Kernel] < %p > OffsetKThreadNextProcessor\n", KdDebuggerDataBlock->OffsetKThreadNextProcessor);
+        // vDbgPrint("[Shark] [Kernel] < %p > OffsetKThreadTeb\n", KdDebuggerDataBlock->OffsetKThreadTeb);
+        // vDbgPrint("[Shark] [Kernel] < %p > OffsetKThreadKernelStack\n", KdDebuggerDataBlock->OffsetKThreadKernelStack);
+        // vDbgPrint("[Shark] [Kernel] < %p > OffsetKThreadInitialStack\n", KdDebuggerDataBlock->OffsetKThreadInitialStack);
+        // vDbgPrint("[Shark] [Kernel] < %p > OffsetKThreadApcProcess\n", KdDebuggerDataBlock->OffsetKThreadApcProcess);
+        // vDbgPrint("[Shark] [Kernel] < %p > OffsetKThreadState\n", KdDebuggerDataBlock->OffsetKThreadState);
+        // vDbgPrint("[Shark] [Kernel] < %p > OffsetKThreadBStore\n", KdDebuggerDataBlock->OffsetKThreadBStore);
+        // vDbgPrint("[Shark] [Kernel] < %p > OffsetKThreadBStoreLimit\n", KdDebuggerDataBlock->OffsetKThreadBStoreLimit);
+        // vDbgPrint("[Shark] [Kernel] < %p > SizeEProcess\n", KdDebuggerDataBlock->SizeEProcess);
+        // vDbgPrint("[Shark] [Kernel] < %p > OffsetEprocessPeb\n", KdDebuggerDataBlock->OffsetEprocessPeb);
+        // vDbgPrint("[Shark] [Kernel] < %p > OffsetEprocessParentCID\n", KdDebuggerDataBlock->OffsetEprocessParentCID);
+        // vDbgPrint("[Shark] [Kernel] < %p > OffsetEprocessDirectoryTableBase\n", KdDebuggerDataBlock->OffsetEprocessDirectoryTableBase);
+        // vDbgPrint("[Shark] [Kernel] < %p > SizePrcb\n", KdDebuggerDataBlock->SizePrcb);
+        // vDbgPrint("[Shark] [Kernel] < %p > OffsetPrcbDpcRoutine\n", KdDebuggerDataBlock->OffsetPrcbDpcRoutine);
+        // vDbgPrint("[Shark] [Kernel] < %p > OffsetPrcbCurrentThread\n", KdDebuggerDataBlock->OffsetPrcbCurrentThread);
+        // vDbgPrint("[Shark] [Kernel] < %p > OffsetPrcbMhz\n", KdDebuggerDataBlock->OffsetPrcbMhz);
+        // vDbgPrint("[Shark] [Kernel] < %p > OffsetPrcbCpuType\n", KdDebuggerDataBlock->OffsetPrcbCpuType);
+        // vDbgPrint("[Shark] [Kernel] < %p > OffsetPrcbVendorString\n", KdDebuggerDataBlock->OffsetPrcbVendorString);
+        // vDbgPrint("[Shark] [Kernel] < %p > OffsetPrcbProcStateContext\n", KdDebuggerDataBlock->OffsetPrcbProcStateContext);
+        // vDbgPrint("[Shark] [Kernel] < %p > OffsetPrcbNumber\n", KdDebuggerDataBlock->OffsetPrcbNumber);
+        // vDbgPrint("[Shark] [Kernel] < %p > SizeEThread\n", KdDebuggerDataBlock->SizeEThread);
+        /// vDbgPrint("[Shark] [Kernel] < %p > KdPrintCircularBufferPtr\n", KdDebuggerDataBlock->KdPrintCircularBufferPtr);
+        /// vDbgPrint("[Shark] [Kernel] < %p > KdPrintBufferSize\n", KdDebuggerDataBlock->KdPrintBufferSize);
+        /// vDbgPrint("[Shark] [Kernel] < %p > KeLoaderBlock\n", KdDebuggerDataBlock->KeLoaderBlock);
+        // vDbgPrint("[Shark] [Kernel] < %p > SizePcr\n", KdDebuggerDataBlock->SizePcr);
+        // vDbgPrint("[Shark] [Kernel] < %p > OffsetPcrSelfPcr\n", KdDebuggerDataBlock->OffsetPcrSelfPcr);
+        // vDbgPrint("[Shark] [Kernel] < %p > OffsetPcrCurrentPrcb\n", KdDebuggerDataBlock->OffsetPcrCurrentPrcb);
+        // vDbgPrint("[Shark] [Kernel] < %p > OffsetPcrContainedPrcb\n", KdDebuggerDataBlock->OffsetPcrContainedPrcb);
+        // vDbgPrint("[Shark] [Kernel] < %p > OffsetPcrInitialBStore\n", KdDebuggerDataBlock->OffsetPcrInitialBStore);
+        // vDbgPrint("[Shark] [Kernel] < %p > OffsetPcrBStoreLimit\n", KdDebuggerDataBlock->OffsetPcrBStoreLimit);
+        // vDbgPrint("[Shark] [Kernel] < %p > OffsetPcrInitialStack\n", KdDebuggerDataBlock->OffsetPcrInitialStack);
+        // vDbgPrint("[Shark] [Kernel] < %p > OffsetPcrStackLimit\n", KdDebuggerDataBlock->OffsetPcrStackLimit);
+        // vDbgPrint("[Shark] [Kernel] < %p > OffsetPrcbPcrPage\n", KdDebuggerDataBlock->OffsetPrcbPcrPage);
+        // vDbgPrint("[Shark] [Kernel] < %p > OffsetPrcbProcStateSpecialReg\n", KdDebuggerDataBlock->OffsetPrcbProcStateSpecialReg);
+        // vDbgPrint("[Shark] [Kernel] < %p > GdtR0Code\n", KdDebuggerDataBlock->GdtR0Code);
+        // vDbgPrint("[Shark] [Kernel] < %p > GdtR0Data\n", KdDebuggerDataBlock->GdtR0Data);
+        // vDbgPrint("[Shark] [Kernel] < %p > GdtR0Pcr\n", KdDebuggerDataBlock->GdtR0Pcr);
+        // vDbgPrint("[Shark] [Kernel] < %p > GdtR3Code\n", KdDebuggerDataBlock->GdtR3Code);
+        // vDbgPrint("[Shark] [Kernel] < %p > GdtR3Data\n", KdDebuggerDataBlock->GdtR3Data);
+        // vDbgPrint("[Shark] [Kernel] < %p > GdtR3Teb\n", KdDebuggerDataBlock->GdtR3Teb);
+        // vDbgPrint("[Shark] [Kernel] < %p > GdtLdt\n", KdDebuggerDataBlock->GdtLdt);
+        // vDbgPrint("[Shark] [Kernel] < %p > GdtTss\n", KdDebuggerDataBlock->GdtTss);
+        // vDbgPrint("[Shark] [Kernel] < %p > Gdt64R3CmCode\n", KdDebuggerDataBlock->Gdt64R3CmCode);
+        // vDbgPrint("[Shark] [Kernel] < %p > Gdt64R3CmTeb\n", KdDebuggerDataBlock->Gdt64R3CmTeb);
+        /// vDbgPrint("[Shark] [Kernel] < %p > IopNumTriageDumpDataBlocks\n", KdDebuggerDataBlock->IopNumTriageDumpDataBlocks);
+        /// vDbgPrint("[Shark] [Kernel] < %p > IopTriageDumpDataBlocks\n", KdDebuggerDataBlock->IopTriageDumpDataBlocks);
 
-        if (GpBlock->BuildNumber >= 10586) {
-            // DbgPrint("[Shark] < %p > PteBase\n", KdDebuggerDataAdditionBlock->PteBase);
+        if (Block->BuildNumber >= 10586) {
+            // vDbgPrint("[Shark] [Kernel] < %p > PteBase\n", KdDebuggerDataAdditionBlock->PteBase);
         }
-#endif // !PUBLIC
+#endif // DEBUG
 
-        ExFreePool(DumpHeader);
+        __free(DumpHeader);
     }
 
 #ifndef _WIN64
-    RtlInitUnicodeString(&RoutineString, L"KeCapturePersistentThreadState");
+    Block->OffsetKProcessThreadListHead = 0x2c;
 
-    ControlPc = MmGetSystemRoutineAddress(&RoutineString);
+    if (Block->BuildNumber < 9200) {
+        Block->OffsetKThreadThreadListEntry = 0x1e0;
+    }
+    else {
+        Block->OffsetKThreadThreadListEntry = 0x1d4;
+    }
+#else
+    Block->OffsetKProcessThreadListHead = 0x30;
+    Block->OffsetKThreadThreadListEntry = 0x2f8;
+#endif // !_WIN64
+
+#ifndef _WIN64
+    RtlInitUnicodeString(&String, L"KeCapturePersistentThreadState");
+
+    ControlPc = MmGetSystemRoutineAddress(&String);
 
     ControlPc = ScanBytes(
         ControlPc,
@@ -390,13 +474,42 @@ InitializeGpBlock(
         Block->PsLoadedModuleResource = *(PERESOURCE *)(ControlPc + 3);
     }
 
-    RtlInitUnicodeString(&RoutineString, L"KeServiceDescriptorTable");
+    RtlInitUnicodeString(&String, L"KeServiceDescriptorTable");
 
-    Block->KeServiceDescriptorTable = MmGetSystemRoutineAddress(&RoutineString);
+    Block->KeServiceDescriptorTable = MmGetSystemRoutineAddress(&String);
+
+    NtSection = FindSection(
+        (ptr)Block->DebuggerDataBlock.KernBase,
+        ".text");
+
+    if (NULL != NtSection) {
+        SectionBase =
+            (u8ptr)Block->DebuggerDataBlock.KernBase + NtSection->VirtualAddress;
+
+        SizeToLock = max(
+            NtSection->SizeOfRawData,
+            NtSection->Misc.VirtualSize);
+
+        ControlPc = ScanBytes(
+            SectionBase,
+            (u8ptr)SectionBase + SizeToLock,
+            PerfGlobalGroupMask);
+
+        if (NULL != ControlPc) {
+            Block->PerfInfoLogSysCallEntry = ControlPc + 0xd;
+
+            RtlCopyMemory(
+                Block->KiSystemServiceCopyEnd,
+                Block->PerfInfoLogSysCallEntry,
+                sizeof(Block->KiSystemServiceCopyEnd));
+
+            Block->PerfGlobalGroupMask = UlongToPtr(*(u32 *)(ControlPc + 4) - 8);
+}
+    }
 #else
-    RtlInitUnicodeString(&RoutineString, L"KeCapturePersistentThreadState");
+    RtlInitUnicodeString(&String, L"KeCapturePersistentThreadState");
 
-    ControlPc = MmGetSystemRoutineAddress(&RoutineString);
+    ControlPc = MmGetSystemRoutineAddress(&String);
 
     ControlPc = ScanBytes(
         ControlPc,
@@ -404,32 +517,251 @@ InitializeGpBlock(
         PsLoadedModuleResource);
 
     if (NULL != ControlPc) {
-        Block->PsLoadedModuleResource = (PERESOURCE)__RVA_TO_VA(ControlPc + 3);
+        Block->PsLoadedModuleResource = (PERESOURCE)__rva_to_va(ControlPc + 3);
     }
 
-    NtHeaders = RtlImageNtHeader((PVOID)Block->DebuggerDataBlock.KernBase);
+    NtSection = FindSection(
+        (ptr)Block->DebuggerDataBlock.KernBase,
+        ".text");
 
-    if (NULL != NtHeaders) {
-        NtSection = IMAGE_FIRST_SECTION(NtHeaders);
-
+    if (NULL != NtSection) {
         SectionBase =
-            (PCHAR)Block->DebuggerDataBlock.KernBase + NtSection[0].VirtualAddress;
+            (u8ptr)Block->DebuggerDataBlock.KernBase + NtSection->VirtualAddress;
 
         SizeToLock = max(
-            NtSection[0].SizeOfRawData,
-            NtSection[0].Misc.VirtualSize);
+            NtSection->SizeOfRawData,
+            NtSection->Misc.VirtualSize);
 
         ControlPc = ScanBytes(
             SectionBase,
-            (PCHAR)SectionBase + SizeToLock,
+            (u8ptr)SectionBase + SizeToLock,
             KiSystemCall64);
 
         if (NULL != ControlPc) {
-            Block->KeServiceDescriptorTable = __RVA_TO_VA(ControlPc + 23);
-            Block->KeServiceDescriptorTableShadow = __RVA_TO_VA(ControlPc + 30);
-}
+            Block->KeServiceDescriptorTable = __rva_to_va(ControlPc + 23);
+            Block->KeServiceDescriptorTableShadow = __rva_to_va(ControlPc + 30);
+
+            ControlPc = ScanBytes(
+                ControlPc,
+                (u8ptr)SectionBase + SizeToLock,
+                PerfGlobalGroupMask);
+
+            if (NULL != ControlPc) {
+                Block->PerfInfoLogSysCallEntry = ControlPc + 0xa;
+
+                RtlCopyMemory(
+                    Block->KiSystemServiceCopyEnd,
+                    Block->PerfInfoLogSysCallEntry,
+                    sizeof(Block->KiSystemServiceCopyEnd));
+
+                Block->PerfGlobalGroupMask = __rva_to_va_ex(ControlPc + 2, 0 - sizeof(s32));
+            }
+        }
     }
 #endif // !_WIN64
+
+    RtlInitUnicodeString(&String, L"PsGetThreadProcessId");
+
+    ControlPc = MmGetSystemRoutineAddress(&String);
+
+    if (NULL != ControlPc) {
+#ifndef _WIN64
+        Block->OffsetKThreadProcessId = *(u32*)(ControlPc + 10);
+#else
+        Block->OffsetKThreadProcessId = *(u32*)(ControlPc + 3);
+#endif // !_WIN64
+    }
+
+    InitializeListHead(&Block->LoadedPrivateImageList);
+}
+
+ULONG
+NTAPI
+GetPlatform(
+    __in PVOID ImageBase
+)
+{
+    PIMAGE_NT_HEADERS NtHeaders = NULL;
+    ULONG Platform = 0;
+
+    NtHeaders = RtlImageNtHeader(ImageBase);
+
+    if (NULL != NtHeaders) {
+        Platform = NtHeaders->OptionalHeader.Magic;
+    }
+
+    return Platform;
+}
+
+PVOID
+NTAPI
+GetAddressOfEntryPoint(
+    __in PVOID ImageBase
+)
+{
+    PIMAGE_NT_HEADERS NtHeaders = NULL;
+    ULONG Offset = 0;
+    PVOID EntryPoint = NULL;
+
+    NtHeaders = RtlImageNtHeader(ImageBase);
+
+    if (NULL != NtHeaders) {
+        if (IMAGE_NT_OPTIONAL_HDR32_MAGIC == NtHeaders->OptionalHeader.Magic) {
+            Offset = ((PIMAGE_NT_HEADERS32)NtHeaders)->OptionalHeader.AddressOfEntryPoint;
+        }
+
+        if (IMAGE_NT_OPTIONAL_HDR64_MAGIC == NtHeaders->OptionalHeader.Magic) {
+            Offset = ((PIMAGE_NT_HEADERS64)NtHeaders)->OptionalHeader.AddressOfEntryPoint;
+        }
+
+        if (0 != Offset) {
+            EntryPoint = (PCHAR)ImageBase + Offset;
+        }
+    }
+
+    return EntryPoint;
+}
+
+ULONG
+NTAPI
+GetTimeStamp(
+    __in PVOID ImageBase
+)
+{
+    PIMAGE_NT_HEADERS NtHeaders = NULL;
+    ULONG TimeStamp = 0;
+
+    NtHeaders = RtlImageNtHeader(ImageBase);
+
+    if (NULL != NtHeaders) {
+        TimeStamp = NtHeaders->FileHeader.TimeDateStamp;
+    }
+
+    return TimeStamp;
+}
+
+USHORT
+NTAPI
+GetSubsystem(
+    __in PVOID ImageBase
+)
+{
+    PIMAGE_NT_HEADERS NtHeaders = NULL;
+    USHORT Subsystem = 0;
+
+    NtHeaders = RtlImageNtHeader(ImageBase);
+
+    if (NULL != NtHeaders) {
+        if (IMAGE_NT_OPTIONAL_HDR32_MAGIC == NtHeaders->OptionalHeader.Magic) {
+            Subsystem = ((PIMAGE_NT_HEADERS32)NtHeaders)->OptionalHeader.Subsystem;
+        }
+
+        if (IMAGE_NT_OPTIONAL_HDR64_MAGIC == NtHeaders->OptionalHeader.Magic) {
+            Subsystem = ((PIMAGE_NT_HEADERS64)NtHeaders)->OptionalHeader.Subsystem;
+        }
+    }
+
+    return Subsystem;
+}
+
+ULONG
+NTAPI
+GetSizeOfImage(
+    __in PVOID ImageBase
+)
+{
+    PIMAGE_NT_HEADERS NtHeaders = NULL;
+    ULONG SizeOfImage = 0;
+
+    NtHeaders = RtlImageNtHeader(ImageBase);
+
+    if (NULL != NtHeaders) {
+        if (IMAGE_NT_OPTIONAL_HDR32_MAGIC == NtHeaders->OptionalHeader.Magic) {
+            SizeOfImage = ((PIMAGE_NT_HEADERS32)NtHeaders)->OptionalHeader.SizeOfImage;
+        }
+
+        if (IMAGE_NT_OPTIONAL_HDR64_MAGIC == NtHeaders->OptionalHeader.Magic) {
+            SizeOfImage = ((PIMAGE_NT_HEADERS64)NtHeaders)->OptionalHeader.SizeOfImage;
+        }
+    }
+
+    return SizeOfImage;
+}
+
+PIMAGE_SECTION_HEADER
+NTAPI
+SectionTableFromVirtualAddress(
+    __in PVOID ImageBase,
+    __in PVOID Address
+)
+{
+    PIMAGE_NT_HEADERS NtHeaders = NULL;
+    ULONG Index = 0;
+    ULONG Offset = 0;
+    PIMAGE_SECTION_HEADER FoundSection = NULL;
+    PIMAGE_SECTION_HEADER NtSection = NULL;
+    ULONG SizeToLock = 0;
+
+    NtHeaders = RtlImageNtHeader(ImageBase);
+
+    if (NULL != NtHeaders) {
+        FoundSection = IMAGE_FIRST_SECTION(NtHeaders);
+        Offset = (ULONG)((ULONG_PTR)Address - (ULONG_PTR)ImageBase);
+
+        for (Index = 0;
+            Index < NtHeaders->FileHeader.NumberOfSections;
+            Index++) {
+            SizeToLock = max(
+                FoundSection[Index].SizeOfRawData,
+                FoundSection[Index].Misc.VirtualSize);
+
+            if (Offset >= FoundSection[Index].VirtualAddress &&
+                Offset < FoundSection[Index].VirtualAddress + SizeToLock) {
+                NtSection = &FoundSection[Index];
+
+                break;
+            }
+        }
+    }
+
+    return NtSection;
+}
+
+PIMAGE_SECTION_HEADER
+NTAPI
+FindSection(
+    __in PVOID ImageBase,
+    __in PCSTR SectionName
+)
+{
+    PIMAGE_NT_HEADERS NtHeaders = NULL;
+    PIMAGE_SECTION_HEADER NtSection = NULL;
+    PIMAGE_SECTION_HEADER FoundSection = NULL;
+    ULONG Index = 0;
+    ULONG Maximun = 0;
+
+    NtHeaders = RtlImageNtHeader(ImageBase);
+
+    if (NULL != NtHeaders) {
+        FoundSection = IMAGE_FIRST_SECTION(NtHeaders);
+
+        Maximun = min(strlen(SectionName), 8);
+
+        for (Index = 0;
+            Index < NtHeaders->FileHeader.NumberOfSections;
+            Index++) {
+            if (0 == _strnicmp(
+                FoundSection[Index].Name,
+                SectionName,
+                Maximun)) {
+                NtSection = &FoundSection[Index];
+
+                break;
+            }
+        }
+    }
+
+    return NtSection;
 }
 
 NTSTATUS

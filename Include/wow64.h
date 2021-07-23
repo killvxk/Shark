@@ -1,6 +1,6 @@
 /*
 *
-* Copyright (c) 2015-2018 by blindtiger ( blindtiger@foxmail.com )
+* Copyright (c) 2015 - 2021 by blindtiger ( blindtiger@foxmail.com )
 *
 * The contents of this file are subject to the Mozilla Public License Version
 * 2.0 (the "License"); you may not use this file except in compliance with
@@ -57,15 +57,15 @@ extern "C" {
 #define WOW64_MAXIMUM_SUPPORTED_EXTENSION     512
 
     typedef struct _WOW64_FLOATING_SAVE_AREA {
-        ULONG ControlWord;
-        ULONG StatusWord;
-        ULONG TagWord;
-        ULONG ErrorOffset;
-        ULONG ErrorSelector;
-        ULONG DataOffset;
-        ULONG DataSelector;
-        BOOLEAN RegisterArea[WOW64_SIZE_OF_80387_REGISTERS];
-        ULONG Cr0NpxState;
+        u32 ControlWord;
+        u32 StatusWord;
+        u32 TagWord;
+        u32 ErrorOffset;
+        u32 ErrorSelector;
+        u32 DataOffset;
+        u32 DataSelector;
+        b RegisterArea[WOW64_SIZE_OF_80387_REGISTERS];
+        u32 Cr0NpxState;
     } WOW64_FLOATING_SAVE_AREA;
 
     typedef WOW64_FLOATING_SAVE_AREA *PWOW64_FLOATING_SAVE_AREA;
@@ -102,7 +102,7 @@ extern "C" {
         // The context record is never used as an OUT only parameter.
         //
 
-        ULONG ContextFlags;
+        u32 ContextFlags;
 
         //
         // This section is specified/returned if CONTEXT_DEBUG_REGISTERS is
@@ -110,12 +110,12 @@ extern "C" {
         // included in CONTEXT_FULL.
         //
 
-        ULONG Dr0;
-        ULONG Dr1;
-        ULONG Dr2;
-        ULONG Dr3;
-        ULONG Dr6;
-        ULONG Dr7;
+        u32 Dr0;
+        u32 Dr1;
+        u32 Dr2;
+        u32 Dr3;
+        u32 Dr6;
+        u32 Dr7;
 
         //
         // This section is specified/returned if the
@@ -129,34 +129,34 @@ extern "C" {
         // ContextFlags word contians the flag CONTEXT_SEGMENTS.
         //
 
-        ULONG SegGs;
-        ULONG SegFs;
-        ULONG SegEs;
-        ULONG SegDs;
+        u32 SegGs;
+        u32 SegFs;
+        u32 SegEs;
+        u32 SegDs;
 
         //
         // This section is specified/returned if the
         // ContextFlags word contians the flag CONTEXT_INTEGER.
         //
 
-        ULONG Edi;
-        ULONG Esi;
-        ULONG Ebx;
-        ULONG Edx;
-        ULONG Ecx;
-        ULONG Eax;
+        u32 Edi;
+        u32 Esi;
+        u32 Ebx;
+        u32 Edx;
+        u32 Ecx;
+        u32 Eax;
 
         //
         // This section is specified/returned if the
         // ContextFlags word contians the flag CONTEXT_CONTROL.
         //
 
-        ULONG Ebp;
-        ULONG Eip;
-        ULONG SegCs;              // MUST BE SANITIZED
-        ULONG EFlags;             // MUST BE SANITIZED
-        ULONG Esp;
-        ULONG SegSs;
+        u32 Ebp;
+        u32 Eip;
+        u32 SegCs;              // MUST BE SANITIZED
+        u32 EFlags;             // MUST BE SANITIZED
+        u32 Esp;
+        u32 SegSs;
 
         //
         // This section is specified/returned if the ContextFlags word
@@ -164,7 +164,7 @@ extern "C" {
         // The format and contexts are processor specific
         //
 
-        BOOLEAN ExtendedRegisters[WOW64_MAXIMUM_SUPPORTED_EXTENSION];
+        b ExtendedRegisters[WOW64_MAXIMUM_SUPPORTED_EXTENSION];
 
     } WOW64_CONTEXT;
 
@@ -176,7 +176,7 @@ extern "C" {
 #define WOW64_PROGRAM_COUNTER_TO_CONTEXT(Context, ProgramCounter) ((Context)->Eip = (ProgramCounter))
 
 #define WOW64_CONTEXT_LENGTH  (sizeof(WOW64_CONTEXT))
-#define WOW64_CONTEXT_ALIGN   (sizeof(ULONG))
+#define WOW64_CONTEXT_ALIGN   (sizeof(u32))
 #define WOW64_CONTEXT_ROUND   (WOW64_CONTEXT_ALIGN - 1)
 
 #define ThreadWow64Context 29
@@ -184,34 +184,34 @@ extern "C" {
 #include "poppack.h"
 
     typedef struct _WOW64_LDT_ENTRY {
-        USHORT LimitLow;
-        USHORT BaseLow;
+        u16 LimitLow;
+        u16 BaseLow;
 
         union {
             struct {
-                BOOLEAN BaseMid;
-                BOOLEAN Flags1;     // Declare as bytes to avoid alignment
-                BOOLEAN Flags2;     // Problems.
-                BOOLEAN BaseHi;
+                b BaseMid;
+                b Flags1;     // Declare as bytes to avoid alignment
+                b Flags2;     // Problems.
+                b BaseHi;
             } Bytes;
 
             struct {
-                ULONG BaseMid : 8;
-                ULONG Type : 5;
-                ULONG Dpl : 2;
-                ULONG Pres : 1;
-                ULONG LimitHi : 4;
-                ULONG Sys : 1;
-                ULONG Reserved_0 : 1;
-                ULONG Default_Big : 1;
-                ULONG Granularity : 1;
-                ULONG BaseHi : 8;
+                u32 BaseMid : 8;
+                u32 Type : 5;
+                u32 Dpl : 2;
+                u32 Pres : 1;
+                u32 LimitHi : 4;
+                u32 Sys : 1;
+                u32 Reserved_0 : 1;
+                u32 Default_Big : 1;
+                u32 Granularity : 1;
+                u32 BaseHi : 8;
             } Bits;
         } HighWord;
     } WOW64_LDT_ENTRY, *PWOW64_LDT_ENTRY;
 
     typedef struct _WOW64_DESCRIPTOR_TABLE_ENTRY {
-        ULONG Selector;
+        u32 Selector;
         WOW64_LDT_ENTRY Descriptor;
     } WOW64_DESCRIPTOR_TABLE_ENTRY, *PWOW64_DESCRIPTOR_TABLE_ENTRY;
 
@@ -219,15 +219,15 @@ extern "C" {
         NTSTATUS
         NTAPI
         RtlWow64SuspendThread(
-            __in HANDLE ThreadHandle,
-            __out_opt PULONG PreviousSuspendCount
+            __in ptr ThreadHandle,
+            __out_opt u32ptr PreviousSuspendCount
         );
 
     NTSYSCALLAPI
         NTSTATUS
         NTAPI
         RtlWow64GetThreadContext(
-            __in HANDLE ThreadHandle,
+            __in ptr ThreadHandle,
             __inout PWOW64_CONTEXT ThreadContext
         );
 
@@ -235,7 +235,7 @@ extern "C" {
         NTSTATUS
         NTAPI
         RtlWow64SetThreadContext(
-            __in HANDLE ThreadHandle,
+            __in ptr ThreadHandle,
             __in PWOW64_CONTEXT ThreadContext
         );
 

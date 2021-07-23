@@ -1,6 +1,6 @@
 ;
 ;
-; Copyright (c) 2018 by blindtiger. All rights reserved.
+; Copyright (c) 2015 - 2021 by blindtiger. All rights reserved.
 ;
 ; The contents of this file are subject to the Mozilla Public License Version
 ; 2.0 (the "License"); you may not use this file except in compliance with
@@ -18,36 +18,64 @@
 
 include macamd64.inc
 
-        LEAF_ENTRY _CmpByte, _TEXT$00
+; b
+;     NTAPI
+;     _cmpbyte(
+;         __in s8 b1,
+;         __in s8 b2
+;     );
+
+    LEAF_ENTRY _cmpbyte, _TEXT$00
         
         cmp cl, dl
         setnz al
         ret
 
-        LEAF_END _CmpByte, _TEXT$00
+    LEAF_END _cmpbyte, _TEXT$00
         
-        LEAF_ENTRY _CmpShort, _TEXT$00
+; b
+;     NTAPI
+;     _cmpword(
+;         __in s16 s1,
+;         __in s16 s2
+;     );
+
+    LEAF_ENTRY _cmpword, _TEXT$00
         
         cmp cx, dx
         setnz al
         ret
 
-        LEAF_END _CmpShort, _TEXT$00
+    LEAF_END _cmpword, _TEXT$00
+    
+; b
+;     NTAPI
+;     _cmpdword(
+;         __in s32 l1,
+;         __in s32 l2
+;     );
 
-        LEAF_ENTRY _CmpLong, _TEXT$00
+    LEAF_ENTRY _cmpdword, _TEXT$00
         
         cmp ecx, edx
         setnz al
         ret
 
-        LEAF_END _CmpLong, _TEXT$00
+    LEAF_END _cmpdword, _TEXT$00
+    
+; b
+;     NTAPI
+;     _cmpqword(
+;         __in s64 ll1,
+;         __in s64 ll2
+;     );
 
-        LEAF_ENTRY _CmpLongLong, _TEXT$00
+    LEAF_ENTRY _cmpqword, _TEXT$00
         
         cmp rcx, rdx
         setnz al
         ret
 
-        LEAF_END _CmpLongLong, _TEXT$00
+    LEAF_END _cmpqword, _TEXT$00
 
         end

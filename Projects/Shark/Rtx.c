@@ -1,6 +1,6 @@
 /*
 *
-* Copyright (c) 2019 by blindtiger. All rights reserved.
+* Copyright (c) 2015 - 2021 by blindtiger. All rights reserved.
 *
 * The contents of this file are subject to the Mozilla Public License Version
 * 2.0 (the "License")); you may not use this file except in compliance with
@@ -21,43 +21,43 @@
 #include "Rtx.h"
 
 #include "Ctx.h"
-#include "Detour.h"
+#include "Guard.h"
 #include "Scan.h"
 
-VOID
+void
 NTAPI
 AsyncDispatcher(
     __in PKAPC Apc,
     __in PKNORMAL_ROUTINE * NormalRoutine,
-    __in PVOID * NormalContext,
-    __in PVOID * SystemArgument1,
-    __in PVOID * SystemArgument2
+    __in ptr * NormalContext,
+    __in ptr * SystemArgument1,
+    __in ptr * SystemArgument2
 )
 {
     PATX Atx = NULL;
 
     Atx = CONTAINING_RECORD(Apc, ATX, Apc);
 
-    Atx->Rtx.Routines.Result = MultipleDispatcher(
-        Atx->Rtx.Routines.ApcRoutine,
+    Atx->Rtx.Routines.Result = GuardCall(
+        Atx->Rtx.Routines.KernelRoutine,
         Atx->Rtx.Routines.SystemRoutine,
-        Atx->Rtx.Routines.StartRoutine,
-        Atx->Rtx.Routines.StartContext);
+        Atx->Rtx.Routines.RundownRoutine,
+        Atx->Rtx.Routines.NormalRoutine);
 
     KeSetEvent(&Atx->Rtx.Notify, LOW_PRIORITY, FALSE);
 }
 
-NTSTATUS
+status
 NTAPI
 AsyncCall(
-    __in HANDLE UniqueThread,
-    __in_opt PPS_APC_ROUTINE ApcRoutine,
-    __in_opt PKSYSTEM_ROUTINE SystemRoutine,
-    __in_opt PUSER_THREAD_START_ROUTINE StartRoutine,
-    __in_opt PVOID StartContext
+    __in ptr UniqueThread,
+    __in_opt PGKERNEL_ROUTINE KernelRoutine,
+    __in_opt PGSYSTEM_ROUTINE SystemRoutine,
+    __in_opt PGRUNDOWN_ROUTINE RundownRoutine,
+    __in_opt PGNORMAL_ROUTINE NormalRoutine
 )
 {
-    NTSTATUS Status = STATUS_SUCCESS;
+    status Status = STATUS_SUCCESS;
     PETHREAD Thread = NULL;
     ATX Atx = { 0 };
     LARGE_INTEGER Timeout = { 0 };
@@ -67,17 +67,17 @@ AsyncCall(
         &Thread);
 
     if (TRACE(Status)) {
-        Atx.Rtx.Routines.ApcRoutine = ApcRoutine;
+        Atx.Rtx.Routines.KernelRoutine = KernelRoutine;
         Atx.Rtx.Routines.SystemRoutine = SystemRoutine;
-        Atx.Rtx.Routines.StartRoutine = StartRoutine;
-        Atx.Rtx.Routines.StartContext = StartContext;
+        Atx.Rtx.Routines.RundownRoutine = RundownRoutine;
+        Atx.Rtx.Routines.NormalRoutine = NormalRoutine;
 
         KeInitializeEvent(
             &Atx.Rtx.Notify,
             SynchronizationEvent,
             FALSE);
 
-        if ((ULONG_PTR)KeGetCurrentThread() != (ULONG_PTR)Thread) {
+        if ((u)KeGetCurrentThread() != (u)Thread) {
             KeInitializeApc(
                 &Atx.Apc,
                 Thread,
@@ -122,77 +122,77 @@ AsyncCall(
     return Status;
 }
 
-VOID
+void
 NTAPI
 IpiDispatcher(
     __in PRTX Rtx
 )
 {
     if (-1 == Rtx->Processor) {
-        MultipleDispatcher(
-            Rtx->Routines.ApcRoutine,
+        GuardCall(
+            Rtx->Routines.KernelRoutine,
             Rtx->Routines.SystemRoutine,
-            Rtx->Routines.StartRoutine,
-            Rtx->Routines.StartContext);
+            Rtx->Routines.RundownRoutine,
+            Rtx->Routines.NormalRoutine);
     }
     else {
         if (KeGetCurrentProcessorNumber() == Rtx->Processor) {
-            Rtx->Routines.Result = MultipleDispatcher(
-                Rtx->Routines.ApcRoutine,
+            Rtx->Routines.Result = GuardCall(
+                Rtx->Routines.KernelRoutine,
                 Rtx->Routines.SystemRoutine,
-                Rtx->Routines.StartRoutine,
-                Rtx->Routines.StartContext);
+                Rtx->Routines.RundownRoutine,
+                Rtx->Routines.NormalRoutine);
         }
     }
 }
 
-ULONG_PTR
+u
 NTAPI
 IpiSingleCall(
-    __in_opt PPS_APC_ROUTINE ApcRoutine,
-    __in_opt PKSYSTEM_ROUTINE SystemRoutine,
-    __in_opt PUSER_THREAD_START_ROUTINE StartRoutine,
-    __in_opt PVOID StartContext
+    __in_opt PGKERNEL_ROUTINE KernelRoutine,
+    __in_opt PGSYSTEM_ROUTINE SystemRoutine,
+    __in_opt PGRUNDOWN_ROUTINE RundownRoutine,
+    __in_opt PGNORMAL_ROUTINE NormalRoutine
 )
 {
-    ULONG_PTR Result = 0;
+    u Result = 0;
     RTX Rtx = { 0 };
 
     Rtx.Processor = KeGetCurrentProcessorNumber();
 
-    Rtx.Routines.ApcRoutine = ApcRoutine;
+    Rtx.Routines.KernelRoutine = KernelRoutine;
     Rtx.Routines.SystemRoutine = SystemRoutine;
-    Rtx.Routines.StartRoutine = StartRoutine;
-    Rtx.Routines.StartContext = StartContext;
+    Rtx.Routines.RundownRoutine = RundownRoutine;
+    Rtx.Routines.NormalRoutine = NormalRoutine;
 
     KeIpiGenericCall(
         (PKIPI_BROADCAST_WORKER)IpiDispatcher,
-        (ULONG_PTR)&Rtx);
+        (u)&Rtx);
 
     Result = Rtx.Routines.Result;
 
     return Result;
 }
 
-VOID
+void
 NTAPI
 IpiGenericCall(
-    __in_opt PPS_APC_ROUTINE ApcRoutine,
-    __in_opt PKSYSTEM_ROUTINE SystemRoutine,
-    __in_opt PUSER_THREAD_START_ROUTINE StartRoutine,
-    __in_opt PVOID StartContext
+    __in_opt PGKERNEL_ROUTINE KernelRoutine,
+    __in_opt PGSYSTEM_ROUTINE SystemRoutine,
+    __in_opt PGRUNDOWN_ROUTINE RundownRoutine,
+    __in_opt PGNORMAL_ROUTINE NormalRoutine
 )
 {
     RTX Rtx = { 0 };
 
     Rtx.Processor = -1;
 
-    Rtx.Routines.ApcRoutine = ApcRoutine;
+    Rtx.Routines.KernelRoutine = KernelRoutine;
     Rtx.Routines.SystemRoutine = SystemRoutine;
-    Rtx.Routines.StartRoutine = StartRoutine;
-    Rtx.Routines.StartContext = StartContext;
+    Rtx.Routines.RundownRoutine = RundownRoutine;
+    Rtx.Routines.NormalRoutine = NormalRoutine;
 
     KeIpiGenericCall(
         (PKIPI_BROADCAST_WORKER)IpiDispatcher,
-        (ULONG_PTR)&Rtx);
+        (u)&Rtx);
 }

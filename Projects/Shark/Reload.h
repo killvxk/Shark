@@ -1,6 +1,6 @@
 /*
 *
-* Copyright (c) 2019 by blindtiger. All rights reserved.
+* Copyright (c) 2015 - 2021 by blindtiger. All rights reserved.
 *
 * The contents of this file are subject to the Mozilla Public License Version
 * 2.0 (the "License"); you may not use this file except in compliance with
@@ -19,6 +19,7 @@
 #ifndef _RELOAD_H_
 #define _RELOAD_H_
 
+#include <guarddefs.h>
 #include <devicedefs.h>
 #include <dump.h>
 
@@ -45,28 +46,26 @@ extern "C" {
 
         PKLDR_DATA_TABLE_ENTRY KernelDataTableEntry; // ntoskrnl.exe
         PKLDR_DATA_TABLE_ENTRY CoreDataTableEntry; // self
-        PVOID CpuControlBlock; // hypervisor
-        struct _PRIVATE_HEADER * PrivateHeader; // private data
+        ptr CpuControlBlock; // hypervisor
 
-        struct _PRIVATE_OBJECT * NativeObject;
+        ptr NativeObject;
 
 #ifdef _WIN64
-        struct _PRIVATE_OBJECT * Wx86NativeObject;
+        ptr Wx86NativeObject;
 #endif // _WIN64
         LIST_ENTRY LoadedPrivateImageList;
         LIST_ENTRY ObjectList;
         KSPIN_LOCK ObjectLock;
 
-        struct {
-            BOOLEAN Hypervisor : 1; // deploy hypervisor
-            BOOLEAN PatchGuard : 1; // deploy bypass patchguard
-            BOOLEAN Callback : 1; // deploy callback
-        }Features;
+        s8 NumberProcessors;
+        s8 Linkage[3];// { 0x33, 0xc0, 0xc3 };
 
-        CCHAR NumberProcessors;
-        CCHAR Reserved[2];
-
-        ULONG BuildNumber;
+        s32 BuildNumber;
+        u32 Flags;
+        u64 * PerfGlobalGroupMask;
+        s8 KiSystemServiceCopyEnd[6];
+        cptr PerfInfoLogSysCallEntry;
+        ptr KeUserExceptionDispatcher;
 
 #ifdef _WIN64
         PMMPTE PxeBase;
@@ -82,92 +81,141 @@ extern "C" {
         PMMPTE PteBase;
         PMMPTE PteTop;
 
-        VOID
-        (NTAPI * CaptureContext)(
-            __in ULONG ProgramCounter,
-            __in PVOID Detour,
-            __in struct _GUARD * Guard
+        void
+        (NTAPI * KiDispatchException)(
+            __in PEXCEPTION_RECORD ExceptionRecord,
+            __in PKEXCEPTION_FRAME ExceptionFrame,
+            __in PKTRAP_FRAME TrapFrame,
+            __in KPROCESSOR_MODE PreviousMode,
+            __in b FirstChance
             );
 
-        VOID
+        void
+        (NTAPI * KeContextFromKframes)(
+            __in PKTRAP_FRAME TrapFrame,
+#if defined(_X86_)
+            __in_opt PKEXCEPTION_FRAME ExceptionFrame,
+#else
+            __in PKEXCEPTION_FRAME ExceptionFrame,
+#endif
+            __inout PCONTEXT ContextFrame
+            );
+
+        void
+        (NTAPI * KeContextToKframes)(
+            __inout PKTRAP_FRAME TrapFrame,
+
+#if defined(_X86_)
+            __inout_opt PKEXCEPTION_FRAME ExceptionFrame,
+#else
+            __inout PKEXCEPTION_FRAME ExceptionFrame,
+#endif
+            __in PCONTEXT ContextFrame,
+            __in u32 ContextFlags,
+            __in KPROCESSOR_MODE PreviousMode
+            );
+
+#ifndef _WIN64
+        status
+        (NTAPI * DbgkpSendApiMessageLpc)(
+            __inout ptr ApiMsg,
+            __in ptr Port,
+            __in b SuspendProcess
+            );
+
+        status
+        (FASTCALL * FastDbgkpSendApiMessageLpc)(
+            __inout ptr ApiMsg,
+            __in ptr Port,
+            __in b SuspendProcess
+            );
+#else
+        status
+        (FASTCALL * DbgkpSendApiMessageLpc)(
+            __inout ptr ApiMsg,
+            __in ptr Port,
+            __in b SuspendProcess
+            );
+#endif // !_WIN64
+
+        OB_PREOP_CALLBACK_STATUS
+        (NTAPI * GlobalObjectPreCallback)(
+            __in ptr RegistrationContext,
+            __in POB_PRE_OPERATION_INFORMATION OperationInformation
+            );
+
+        void
+        (NTAPI * GlobalObjectPostCallback)(
+            __in ptr RegistrationContext,
+            __in POB_POST_OPERATION_INFORMATION OperationInformation
+            );
+
+        void
+        (NTAPI * GlobalProcessNotify)(
+            __in ptr ParentId,
+            __in ptr ProcessId,
+            __in b Create
+            );
+
+        void
+        (NTAPI * GlobalThreadNotify)(
+            __in ptr ProcessId,
+            __in ptr ThreadId,
+            __in b Create
+            );
+
+        void
+        (NTAPI * GlobalImageNotify)(
+            __in PUNICODE_STRING FullImageName,
+            __in ptr ProcessId,
+            __in PIMAGE_INFO ImageInfo
+            );
+
+        void
         (NTAPI * KeEnterCriticalRegion)(
-            VOID
+            void
             );
 
-        VOID
+        void
         (NTAPI * KeLeaveCriticalRegion)(
-            VOID
+            void
             );
 
-        NTSTATUS
+        status
         (NTAPI * PspCreateThread)(
-            __out PHANDLE ThreadHandle,
+            __out ptr * ThreadHandle,
             __in ACCESS_MASK DesiredAccess,
             __in_opt POBJECT_ATTRIBUTES ObjectAttributes,
-            __in HANDLE ProcessHandle,
+            __in ptr ProcessHandle,
             __in PEPROCESS ProcessPointer,
-            __in_opt PVOID Reserved,
+            __in_opt ptr Reserved,
             __in_opt PLARGE_INTEGER Cookie,
             __out_opt PCLIENT_ID ClientId,
             __in_opt PCONTEXT ThreadContext,
             __in_opt PINITIAL_TEB InitialTeb,
-            __in BOOLEAN CreateSuspended,
+            __in b CreateSuspended,
             __in_opt PKSTART_ROUTINE StartRoutine,
-            __in PVOID StartContext
+            __in ptr StartContext
             );
 
-        BOOLEAN
+        void
+        (NTAPI * PspInitializeThunkContext)(
+            void
+            );
+
+        b
         (FASTCALL * ExAcquireRundownProtection)(
             __inout PEX_RUNDOWN_REF RunRef
             );
 
-        VOID
+        void
         (FASTCALL * ExReleaseRundownProtection)(
             __inout PEX_RUNDOWN_REF RunRef
             );
 
-        VOID
+        void
         (FASTCALL * ExWaitForRundownProtectionRelease)(
             __inout PEX_RUNDOWN_REF RunRef
-            );
-
-        PEX_CALLBACK_ROUTINE_BLOCK
-        (NTAPI * ExAllocateCallBack)(
-            __in PEX_CALLBACK_FUNCTION Function,
-            __in PVOID Context
-            );
-
-        VOID
-        (NTAPI * ExFreeCallBack)(
-            __in PEX_CALLBACK_ROUTINE_BLOCK CallBackBlock
-            );
-
-        VOID
-        (NTAPI * ExWaitForCallBacks)(
-            __in PEX_CALLBACK_ROUTINE_BLOCK CallBackBlock
-            );
-
-        PEX_CALLBACK_ROUTINE_BLOCK
-        (NTAPI * ExReferenceCallBackBlock)(
-            __inout PEX_CALLBACK CallBack
-            );
-
-        PEX_CALLBACK_FUNCTION
-        (NTAPI * ExGetCallBackBlockRoutine)(
-            __in PEX_CALLBACK_ROUTINE_BLOCK CallBackBlock
-            );
-
-        BOOLEAN
-        (NTAPI * ExCompareExchangeCallBack)(
-            __inout PEX_CALLBACK CallBack,
-            __in PEX_CALLBACK_ROUTINE_BLOCK NewBlock,
-            __in PEX_CALLBACK_ROUTINE_BLOCK OldBlock
-            );
-
-        VOID
-        (NTAPI * ExDereferenceCallBackBlock)(
-            __inout PEX_CALLBACK CallBack,
-            __in PEX_CALLBACK_ROUTINE_BLOCK CallBackBlock
             );
 
         KIRQL
@@ -175,92 +223,137 @@ extern "C" {
             __inout PEX_SPIN_LOCK SpinLock
             );
 
-        VOID
+        void
         (NTAPI * ExReleaseSpinLockShared)(
             __inout PEX_SPIN_LOCK SpinLock,
             __in KIRQL OldIrql
             );
 
-        ULONG
+        u32
         (NTAPI * DbgPrint)(
             __in PCH Format,
             ...
             );
 
-        SIZE_T
+        u
         (NTAPI * RtlCompareMemory)(
-            const VOID * Destination,
-            const VOID * Source,
-            SIZE_T Length
+            const void * Destination,
+            const void * Source,
+            u Length
             );
 
-        VOID
+        void
         (NTAPI * RtlRestoreContext)(
             __in PCONTEXT ContextRecord,
             __in_opt struct _EXCEPTION_RECORD *ExceptionRecord
             );
 
-        VOID
+        void
         (NTAPI * ExQueueWorkItem)(
             __inout PWORK_QUEUE_ITEM WorkItem,
             __in WORK_QUEUE_TYPE QueueType
             );
 
-        VOID
+        void
         (NTAPI * ExFreePoolWithTag)(
-            __in PVOID P,
-            __in ULONG Tag
+            __in ptr P,
+            __in u32 Tag
             );
 
-        VOID
+        PSAFEGUARD_OBJECT BugCheckHandle;
+
+        void
         (NTAPI * KeBugCheckEx)(
-            __in ULONG BugCheckCode,
-            __in ULONG_PTR P1,
-            __in ULONG_PTR P2,
-            __in ULONG_PTR P3,
-            __in ULONG_PTR P4
+            __in u32 BugCheckCode,
+            __in u P1,
+            __in u P2,
+            __in u P3,
+            __in u P4
             );
 
-        HANDLE ObjectCallback;
-
-#define MAXIMUM_NOTIFY 64
-
-#define PROCESS_NOTIFY 0
-#define THREAD_NOTIFY 1
-#define IMAGE_NOTIFY 2
-
-        ULONG ProcessNotifyRoutineCount;
-        EX_CALLBACK ProcessNotifyRoutine[MAXIMUM_NOTIFY];
-
-        ULONG ThreadNotifyRoutineCount;
-        EX_CALLBACK ThreadNotifyRoutine[MAXIMUM_NOTIFY];
-
-        ULONG ImageNotifyRoutineCount;
-        EX_CALLBACK ImageNotifyRoutine[MAXIMUM_NOTIFY];
-
-        OB_PREOP_CALLBACK_STATUS
-        (NTAPI * ObjectPreCallback)(
-            __in PVOID RegistrationContext,
-            __in POB_PRE_OPERATION_INFORMATION OperationInformation
+        PLIST_ENTRY
+        (FASTCALL * ExInterlockedRemoveHeadList)(
+            __inout PLIST_ENTRY ListHead,
+            __inout PKSPIN_LOCK Lock
             );
 
-        VOID
-        (NTAPI * ObjectPostCallback)(
-            __in PVOID RegistrationContext,
-            __in POB_POST_OPERATION_INFORMATION OperationInformation
-            );
+        ptr ObjectCallback;
 
         KDDEBUGGER_DATA64 DebuggerDataBlock;
         KDDEBUGGER_DATA_ADDITION64 DebuggerDataAdditionBlock;
 
-#ifndef _WIN64
-        CHAR _CaptureContext[0x91];
-#else
-        CHAR _CaptureContext[0x152];
-#endif // !_WIN64
+        u16 OffsetKProcessThreadListHead;
+        u16 OffsetKThreadThreadListEntry;
+        u16 OffsetKThreadWin32StartAddress;
+        u32 OffsetKThreadProcessId;
 
-        // struct _PGBLOCK PgBlock;
+        struct _PGBLOCK * PgBlock;
     } GPBLOCK, *PGPBLOCK;
+
+    NTKERNELAPI
+        status
+        NTAPI
+        PsAcquireProcessExitSynchronization(
+            __in PEPROCESS Process
+        );
+
+    NTKERNELAPI
+        void
+        NTAPI
+        PsReleaseProcessExitSynchronization(
+            __in PEPROCESS Process
+        );
+
+#define FastAcquireRundownProtection(ref) \
+            GpBlock.ExAcquireRundownProtection((ref))
+
+#define FastReleaseRundownProtection(ref) \
+            GpBlock.ExReleaseRundownProtection((ref))
+
+#define FastWaitForRundownProtectionRelease(ref) \
+            GpBlock.ExWaitForRundownProtectionRelease((ref))
+
+#define FastAcquireObjectLock(irql) \
+            *(irql) = GpBlock.ExAcquireSpinLockShared(&GpBlock.ObjectLock)
+
+#define FastReleaseObjectLock(irql) \
+            GpBlock.ExReleaseSpinLockShared(&GpBlock.ObjectLock, (irql))
+
+    VOID
+        NTAPI
+        InitializeGpBlock(
+            __in PGPBLOCK Block
+        );
+
+    ULONG
+        NTAPI
+        GetPlatform(
+            __in PVOID ImageBase
+        );
+
+    ULONG
+        NTAPI
+        GetTimeStamp(
+            __in PVOID ImageBase
+        );
+
+    USHORT
+        NTAPI
+        GetSubsystem(
+            __in PVOID ImageBase
+        );
+
+    ULONG
+        NTAPI
+        GetSizeOfImage(
+            __in PVOID ImageBase
+        );
+
+    PVOID
+        NTAPI
+        GetAddressOfEntryPoint(
+            __in PVOID ImageBase
+        );
 
     PIMAGE_SECTION_HEADER
         NTAPI
@@ -269,10 +362,11 @@ extern "C" {
             __in PVOID Address
         );
 
-    VOID
+    PIMAGE_SECTION_HEADER
         NTAPI
-        InitializeGpBlock(
-            __in PGPBLOCK Block
+        FindSection(
+            __in PVOID ImageBase,
+            __in PCSTR SectionName
         );
 
     NTSTATUS

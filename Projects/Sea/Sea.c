@@ -1,6 +1,6 @@
 /*
 *
-* Copyright (c) 2018 by blindtiger. All rights reserved.
+* Copyright (c) 2015 - 2021 by blindtiger. All rights reserved.
 *
 * The contents of this file are subject to the Mozilla Public License Version
 * 2.0 (the "License")); you may not use this file except in compliance with
@@ -37,6 +37,7 @@ NtProcessStartup(
     IO_STATUS_BLOCK IoStatusBlock = { 0 };
     UNICODE_STRING ImagePath = { 0 };
     WCHAR ImagePathBuffer[MAXIMUM_FILENAME_LENGTH] = { 0 };
+    TCHAR ErrorString[MAXIMUM_FILENAME_LENGTH] = { 0 };
 
     Status = RtlDosPathNameToNtPathName_U_WithStatus(
         LOADER_STRING,
@@ -44,7 +45,7 @@ NtProcessStartup(
         NULL,
         NULL);
 
-    if (TRACE(Status)) {
+    if (NT_SUCCESS(Status)) {
         RtlCopyMemory(ImagePathBuffer, ImagePath.Buffer, ImagePath.Length);
 
         Status = LoadKernelImage(ImagePathBuffer, SERVICE_STRING);
@@ -80,14 +81,44 @@ NtProcessStartup(
                     NULL,
                     0);
 
-                TRACE(NtClose(FileHandle));
+                if (NT_SUCCESS(Status)) {
+                }
+                else {
+                    _stprintf(
+                        ErrorString,
+                        TEXT("communication failure error code < %08x >\n"),
+                        Status);
+
+                    MessageBox(NULL, ErrorString, TEXT("error"), MB_OK);
+                }
+
+                NT_SUCCESS(NtClose(FileHandle));
+            }
+            else {
+                _stprintf(
+                    ErrorString,
+                    TEXT("open communication port failure error code < %08x >\n"),
+                    Status);
+
+                MessageBox(NULL, ErrorString, TEXT("error"), MB_OK);
             }
 
+            // Change to permanent
             UnloadKernelImage(SERVICE_STRING);
+        }
+        else {
+            _stprintf(
+                ErrorString,
+                TEXT("load driver error code < %08x >\n"),
+                Status);
+
+            MessageBox(NULL, ErrorString, TEXT("error"), MB_OK);
         }
 
         RtlFreeUnicodeString(&ImagePath);
     }
 
-    return  NtTerminateProcess(NtCurrentProcess(), STATUS_SUCCESS);
+    return  NtTerminateProcess(
+        NtCurrentProcess(),
+        STATUS_SUCCESS);
 }
