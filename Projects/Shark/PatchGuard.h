@@ -12,7 +12,7 @@
 * for the specific language governing rights and limitations under the
 * License.
 *
-* The Initial Developer of the Original e is blindtiger.
+* The Initial Developer of the Original Code is blindtiger.
 *
 */
 
@@ -38,6 +38,10 @@ extern "C" {
         u NumberOfPages;
     } POOL_BIG_PAGES, *PPOOL_BIG_PAGES;
 
+#ifdef _WIN64                                           
+    C_ASSERT(sizeof(POOL_BIG_PAGES) == sizeof(u) * 3);
+#endif // _WIN64
+
     typedef struct _POOL_BIG_PAGESEX {
         ptr Va;
         u32 Key;
@@ -45,6 +49,10 @@ extern "C" {
         u NumberOfPages;
         u Unuse;
     } POOL_BIG_PAGESEX, *PPOOL_BIG_PAGESEX;
+
+#ifdef _WIN64                                       
+    C_ASSERT(sizeof(POOL_BIG_PAGES) == sizeof(u) * 3);
+#endif // _WIN64
 
     enum {
         PgPoolBigPage,
@@ -71,23 +79,25 @@ extern "C" {
         SAFEGUARD_BODY Body;
     }PGOBJECT, *PPGOBJECT;
 
+    // build number > 20000
     typedef enum _MI_SYSTEM_VA_TYPE {
-        MiVaUnused,
-        MiVaSessionSpace,
-        MiVaProcessSpace,
-        MiVaBootLoaded,
-        MiVaPfnDatabase,
-        MiVaNonPagedPool,
-        MiVaPagedPool,
-        MiVaSpecialPoolPaged,
-        MiVaSystemCache,
-        MiVaSystemPtes,
-        MiVaHal,
-        MiVaSessionGlobalSpace,
-        MiVaDriverImages,
-        MiVaSystemPtesLarge,
-        MiVaKernelStacks,
-        MiVaSecureNonPagedPool,
+        MiVaUnused = 0,
+        MiVaSessionSpace = 1,
+        MiVaProcessSpace = 2,
+        MiVaBootLoaded = 3,
+        MiVaPfnDatabase = 4,
+        MiVaNonPagedPool = 5,
+        MiVaPagedPool = 6,
+        MiVaSpecialPoolPaged = 7,
+        MiVaSystemCache = 8,
+        MiVaSystemPtes = 9,
+        MiVaHal = 10,
+        MiVaSessionGlobalSpace = 11,
+        MiVaDriverImages = 12,
+        MiVaSystemPtesLarge = 13,
+        MiVaKernelStacks = 14,
+        MiVaSecureNonPagedPool = 15,
+        MiVaKernelShadowStacks = 16,
         MiVaMaximumType
     }MI_SYSTEM_VA_TYPE, *PMI_SYSTEM_VA_TYPE;
 
@@ -96,13 +106,14 @@ extern "C" {
 
 #define GetGpBlock(pgb) (pgb->GpBlock)
 
-#define PG_MAXIMUM_CONTEXT_COUNT 0x00000003UI32 // 可能存在的 Context 最大数量
-#define PG_FIRST_FIELD_OFFSET 0x00000100UI32 // 搜索使用的第一个 Context 成员偏移
-#define PG_CMP_APPEND_DLL_SECTION_END 0x000000c0UI32 // CmpAppendDllSection 长度
-#define PG_COMPARE_FIELDS_COUNT 0x00000004UI32 // 搜索时比较的 Context 成员数量
-#define PG_COMPARE_BYTE_COUNT 0x00000010UI32 // 搜索 Worker 时比较的字节数量
+#define PG_MAXIMUM_CONTEXT_COUNT 0x00000003UI32 // The maximum number of context that may exist
+#define PG_FIRST_FIELD_OFFSET 0x00000100UI32 // offset of the first context member used by the search
+#define PG_CMP_APPEND_DLL_SECTION_END 0x000000c0UI32 // CmpAppendDllSection length
+#define PG_COMPARE_FIELDS_COUNT 0x00000004UI32 // number of context members compared during search
+#define PG_COMPARE_BYTE_COUNT 0x00000010UI32 // number of bytes compared when searching for workers
 
-        // EntryPoint 缓存大小 用来搜索头部的代码片段 ( 最小长度 =  max(2 * 8 + 7, sizeof(GUARD_BODY)) )
+        // EntryPoint cache size used to search the code fragment of the header 
+        // (minimum length = max(2 * 8 + 7, sizeof(GUARD_BODY)))
 #define PG_MAXIMUM_EP_BUFFER_COUNT ((max(2 * 8 + 7, sizeof(GUARD_BODY)) + 7) & ~7)
 
 #define PG_FIELD_BITS \
@@ -110,8 +121,6 @@ extern "C" {
                 - PG_CMP_APPEND_DLL_SECTION_END) / sizeof(ptr)) - 1))
 
         u8 Count;
-        u8 Cleared;
-        b Repeat;
         b BtcEnable;
         u32 OffsetEntryPoint;
         u32 SizeCmpAppendDllSection;
@@ -143,15 +152,14 @@ extern "C" {
         struct {
             u NumberOfPtes;
             PMMPTE BasePte;
-        }SystemPtes; // system ptes
+        }SystemPtes; // system ptes       
+
+#define SYSTEM_REGION_TYPE_ARRAY_COUNT 0x100
+
+        s8 * SystemRegionTypeArray;
 
         struct {
             ptr WorkerContext;
-
-            MI_SYSTEM_VA_TYPE
-            (NTAPI * MiGetSystemRegionType)(
-                __in ptr VirtualAddress
-                );
 
             void
             (NTAPI * ExpWorkerThread)(
@@ -189,6 +197,11 @@ extern "C" {
             __in_bcount(NumberOfBytes) ptr VirtualAddress,
             __in u NumberOfBytes,
             __in u32 NewProtect
+            );
+
+        b
+        (NTAPI * MmIsAddressValid)(
+            __in ptr VirtualAddress
             );
 
         ptr

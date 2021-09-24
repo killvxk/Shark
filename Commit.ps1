@@ -12,12 +12,10 @@
 # for the specific language governing rights and limitations under the
 # License.
 #
-# The Initial Developer of the Original e is blindtiger.
+# The Initial Developer of the Original Code is blindtiger.
 #
 #
 
 git add *
-$commit = Get-Date -Format 'yyyy-MM-dd-HH-mm-ss'
-git commit -m $commit
-git push -u GitHub master
+git commit -m (Get-Date -Format "dddd MM/dd/yyyy HH:mm:ss:fff")
 pause

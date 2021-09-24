@@ -12,7 +12,7 @@
 * for the specific language governing rights and limitations under the
 * License.
 *
-* The Initial Developer of the Original e is blindtiger.
+* The Initial Developer of the Original Code is blindtiger.
 *
 */
 
@@ -115,7 +115,8 @@ PgClearCallback(
                         &ImageBase,
                         NULL);
 
-                    if (FunctionEntry != NULL) {
+                    if (NULL != FunctionEntry &&
+                        FALSE != PgBlock->MmIsAddressValid((ptr)EstablisherFrame)) {
                         PgBlock->RtlVirtualUnwind(
                             UNW_FLAG_EHANDLER,
                             ImageBase,
@@ -171,8 +172,6 @@ PgClearCallback(
                             GetGpBlock(PgBlock)->vDbgPrint(
                                 PgBlock->ClearMessage[PgEncrypted],
                                 Object);
-
-                            PgBlock->Cleared++;
 #endif // DEBUG
 
                             ExInitializeWorkItem(
@@ -222,8 +221,6 @@ PgClearCallback(
         GetGpBlock(PgBlock)->vDbgPrint(
             PgBlock->ClearMessage[Object->Encrypted],
             Object);
-
-        PgBlock->Cleared++;
 #endif // DEBUG
 
         GetGpBlock(PgBlock)->ExInterlockedRemoveHeadList(
@@ -307,6 +304,7 @@ InitializePgBlock(
     u8ptr ControlPc = NULL;
     u8ptr TargetPc = NULL;
     u32 Length = 0;
+    u Index = 0;
     PIMAGE_NT_HEADERS NtHeaders = NULL;
     PIMAGE_SECTION_HEADER NtSection = NULL;
     ptr EndToLock = NULL;
@@ -315,7 +313,6 @@ InitializePgBlock(
     UNICODE_STRING RoutineString = { 0 };
     ptr RoutineAddress = NULL;
     u8 Selector = 0;
-
     PPOOL_BIG_PAGES * PageTable = NULL;
     uptr PageTableSize = NULL;
     PRTL_BITMAP BitMap = NULL;
@@ -462,7 +459,7 @@ InitializePgBlock(
     // 0F B6 04 08                  	        movzx   eax, byte ptr [rax+rcx]
 
     s8 MiGetSystemRegionType[] =
-        "48 c1 e9 27 81 e1 ff 01 00 00 8d 81 00 ff ff ff 48 8d 0d ?? ?? ?? ?? 0f b6 04 08";
+        "48 c1 e9 27 81 e1 ff 01 00 00 8d 81 00 ff ff ff 48 8d 0d";
 
     // 55                                       push    rbp
     // 41 54                                    push    r12
@@ -493,7 +490,34 @@ InitializePgBlock(
     u64 Ror64[] = { 0xC3C8D348CA869148 };
     u64 Rol64[] = { 0xC3C0D348CA869148 };
     u64 RorWithBtc64[] = { 0x48C8D348CA869148, 0xCCCCCCCCC3C0BB0F };
+
+    // 4892            xchg    rax, rdx
+    // 4801c8          add     rax, rcx
+    // c3              ret
+
+    // 4892            xchg    rax, rdx
+    // 480fafc1        imul    rax, rcx
+    // c3              ret
+
     u64 PostCache[] = { 0xCCCCC3C801489248, 0xCCC3C1AF0F489248 };
+
+    // 48c7c0c8000000  mov     rax, 0C8h
+    // 482bc1          sub     rax, rcx
+    // 4833c1          xor     rax, rcx
+    // 4887ca          xchg    rcx, rdx
+    // 48f7d1          not     rcx
+    // 80e13f          and     cl, 3Fh
+    // 48d3c8          ror     rax, cl
+    // c3              ret
+
+    // 48c7c0c8000000  mov     rax, 0C8h
+    // 482bc1          sub     rax, rcx
+    // 480fafc1        imul    rax, rcx
+    // 4887ca          xchg    rcx, rdx
+    // 48f7d1          not     rcx
+    // 80e13f          and     cl, 3Fh
+    // 48d3c8          ror     rax, cl
+    // c3              ret
 
     u64 PostKey[] = {
         0x48000000C8C0C748, 0xCA8748C13348C12B, 0xD3483FE180D1F748, 0xCCCCCCCCCCCCC3C8,
@@ -501,14 +525,14 @@ InitializePgBlock(
     };
 
     cptr ClearMessage[3] = {
-        "[SHARK] < %p > declassified context cleared\n",
-        "[SHARK] < %p > encrypted context cleared\n",
-        "[SHARK] < %p > double encrypted context cleared\n"
+        "[Shark] < %p > declassified context cleared\n",
+        "[Shark] < %p > encrypted context cleared\n",
+        "[Shark] < %p > double encrypted context cleared\n"
     };
 
 #ifdef DEBUG
     vDbgPrint(
-        "[SHARK] < %p > PgBlock\n",
+        "[Shark] < %p > PgBlock\n",
         PgBlock);
 #endif // DEBUG
 
@@ -588,7 +612,7 @@ InitializePgBlock(
 
 #ifdef DEBUG
                                     vDbgPrint(
-                                        "[SHARK] < %p > SizeCmpAppendDllSection\n",
+                                        "[Shark] < %p > SizeCmpAppendDllSection\n",
                                         PgBlock->SizeCmpAppendDllSection);
 #endif // DEBUG
 
@@ -600,7 +624,7 @@ InitializePgBlock(
 
 #ifdef DEBUG
                                         vDbgPrint(
-                                            "[SHARK] < %p > BtcEnable\n",
+                                            "[Shark] < %p > BtcEnable\n",
                                             PgBlock->BtcEnable);
 #endif // DEBUG
                                     }
@@ -621,7 +645,7 @@ InitializePgBlock(
 
 #ifdef DEBUG
                                     vDbgPrint(
-                                        "[SHARK] < %p > OriginalCmpAppendDllSection\n",
+                                        "[Shark] < %p > OriginalCmpAppendDllSection\n",
                                         PgBlock->OriginalCmpAppendDllSection);
 #endif // DEBUG
                                 }
@@ -635,7 +659,7 @@ InitializePgBlock(
 
 #ifdef DEBUG
                                 vDbgPrint(
-                                    "[SHARK] < %p > OffsetEntryPoint\n",
+                                    "[Shark] < %p > OffsetEntryPoint\n",
                                     PgBlock->OffsetEntryPoint);
 #endif // DEBUG
                                 break;
@@ -680,7 +704,7 @@ InitializePgBlock(
 
 #ifdef DEBUG
                         vDbgPrint(
-                            "[SHARK] < %p > SizeINITKDBG\n",
+                            "[Shark] < %p > SizeINITKDBG\n",
                             PgBlock->SizeINITKDBG);
 #endif // DEBUG
 
@@ -693,7 +717,7 @@ InitializePgBlock(
                                 PgBlock->SizeINITKDBG);
 #ifdef DEBUG
                             vDbgPrint(
-                                "[SHARK] < %p > INITKDBG\n",
+                                "[Shark] < %p > INITKDBG\n",
                                 PgBlock->INITKDBG);
 #endif // DEBUG
                         }
@@ -720,7 +744,7 @@ InitializePgBlock(
 
 #ifdef DEBUG
                             FindAndPrintSymbol(
-                                "[SHARK]",
+                                "[Shark]",
                                 (ptr)PgBlock->Fields[0]);
 #endif // DEBUG
 
@@ -729,7 +753,7 @@ InitializePgBlock(
 
 #ifdef DEBUG
                             FindAndPrintSymbol(
-                                "[SHARK]",
+                                "[Shark]",
                                 (ptr)PgBlock->Fields[1]);
 #endif // DEBUG
 
@@ -738,7 +762,7 @@ InitializePgBlock(
 
 #ifdef DEBUG
                             FindAndPrintSymbol(
-                                "[SHARK]",
+                                "[Shark]",
                                 (ptr)PgBlock->Fields[2]);
 #endif // DEBUG
 
@@ -747,7 +771,7 @@ InitializePgBlock(
 
 #ifdef DEBUG
                             FindAndPrintSymbol(
-                                "[SHARK]",
+                                "[Shark]",
                                 (ptr)PgBlock->Fields[3]);
 #endif // DEBUG
 
@@ -773,7 +797,7 @@ InitializePgBlock(
 
 #ifdef DEBUG
                                             vDbgPrint(
-                                                "[SHARK] < %p > MmAllocateIndependentPages\n",
+                                                "[Shark] < %p > MmAllocateIndependentPages\n",
                                                 PgBlock->MmAllocateIndependentPages);
 #endif // DEBUG
                                         }
@@ -787,7 +811,7 @@ InitializePgBlock(
 
 #ifdef DEBUG
                                         vDbgPrint(
-                                            "[SHARK] < %p > MmFreeIndependentPages\n",
+                                            "[Shark] < %p > MmFreeIndependentPages\n",
                                             PgBlock->MmFreeIndependentPages);
 #endif // DEBUG
 
@@ -800,7 +824,7 @@ InitializePgBlock(
 
 #ifdef DEBUG
                                         vDbgPrint(
-                                            "[SHARK] < %p > MmSetPageProtection\n",
+                                            "[Shark] < %p > MmSetPageProtection\n",
                                             PgBlock->MmSetPageProtection);
 #endif // DEBUG
 
@@ -830,7 +854,7 @@ InitializePgBlock(
 
 #ifdef DEBUG
                                     vDbgPrint(
-                                        "[SHARK] < %p > PsInvertedFunctionTable\n",
+                                        "[Shark] < %p > PsInvertedFunctionTable\n",
                                         GetGpBlock(PgBlock)->PsInvertedFunctionTable);
 #endif // DEBUG
 
@@ -851,7 +875,7 @@ InitializePgBlock(
 
 #ifdef DEBUG
                                     vDbgPrint(
-                                        "[SHARK] < %p > BranchKey[10]\n",
+                                        "[Shark] < %p > BranchKey[10]\n",
                                         PgBlock->BranchKey[10]);
 #endif // DEBUG
                                 }
@@ -869,7 +893,7 @@ InitializePgBlock(
 
 #ifdef DEBUG
                                     vDbgPrint(
-                                        "[SHARK] < %p > BranchKey[0]\n",
+                                        "[Shark] < %p > BranchKey[0]\n",
                                         PgBlock->BranchKey[0]);
 #endif // DEBUG
 
@@ -878,7 +902,7 @@ InitializePgBlock(
 
 #ifdef DEBUG
                                     vDbgPrint(
-                                        "[SHARK] < %p > BranchKey[1]\n",
+                                        "[Shark] < %p > BranchKey[1]\n",
                                         PgBlock->BranchKey[1]);
 #endif // DEBUG
 
@@ -887,7 +911,7 @@ InitializePgBlock(
 
 #ifdef DEBUG
                                     vDbgPrint(
-                                        "[SHARK] < %p > BranchKey[2]\n",
+                                        "[Shark] < %p > BranchKey[2]\n",
                                         PgBlock->BranchKey[2]);
 #endif // DEBUG
 
@@ -896,7 +920,7 @@ InitializePgBlock(
 
 #ifdef DEBUG
                                     vDbgPrint(
-                                        "[SHARK] < %p > BranchKey[3]\n",
+                                        "[Shark] < %p > BranchKey[3]\n",
                                         PgBlock->BranchKey[3]);
 #endif // DEBUG
 
@@ -904,7 +928,7 @@ InitializePgBlock(
 
 #ifdef DEBUG
                                     vDbgPrint(
-                                        "[SHARK] < %p > BranchKey[4]\n",
+                                        "[Shark] < %p > BranchKey[4]\n",
                                         PgBlock->BranchKey[4]);
 #endif // DEBUG
 
@@ -913,7 +937,7 @@ InitializePgBlock(
 
 #ifdef DEBUG
                                     vDbgPrint(
-                                        "[SHARK] < %p > BranchKey[5]\n",
+                                        "[Shark] < %p > BranchKey[5]\n",
                                         PgBlock->BranchKey[5]);
 #endif // DEBUG
 
@@ -925,7 +949,7 @@ InitializePgBlock(
 
 #ifdef DEBUG
                                     vDbgPrint(
-                                        "[SHARK] < %p > BranchKey[6]\n",
+                                        "[Shark] < %p > BranchKey[6]\n",
                                         PgBlock->BranchKey[6]);
 #endif // DEBUG
 
@@ -934,7 +958,7 @@ InitializePgBlock(
 
 #ifdef DEBUG
                                     vDbgPrint(
-                                        "[SHARK] < %p > BranchKey[7]\n",
+                                        "[Shark] < %p > BranchKey[7]\n",
                                         PgBlock->BranchKey[7]);
 #endif // DEBUG
 
@@ -943,7 +967,7 @@ InitializePgBlock(
 
 #ifdef DEBUG
                                     vDbgPrint(
-                                        "[SHARK] < %p > BranchKey[8]\n",
+                                        "[Shark] < %p > BranchKey[8]\n",
                                         PgBlock->BranchKey[8]);
 #endif // DEBUG
 
@@ -952,7 +976,7 @@ InitializePgBlock(
 
 #ifdef DEBUG
                                     vDbgPrint(
-                                        "[SHARK] < %p > BranchKey[9]\n",
+                                        "[Shark] < %p > BranchKey[9]\n",
                                         PgBlock->BranchKey[9]);
 #endif // DEBUG
                                 }
@@ -967,7 +991,7 @@ InitializePgBlock(
 
 #ifdef DEBUG
                                     vDbgPrint(
-                                        "[SHARK] < %p > BranchKey[11]\n",
+                                        "[Shark] < %p > BranchKey[11]\n",
                                         PgBlock->BranchKey[11]);
 #endif // DEBUG
                                 }
@@ -995,7 +1019,7 @@ InitializePgBlock(
 
 #ifdef DEBUG
                     vDbgPrint(
-                        "[SHARK] < %p > KiStartSystemThread\n",
+                        "[Shark] < %p > KiStartSystemThread\n",
                         PgBlock->KiStartSystemThread);
 #endif // DEBUG
                 }
@@ -1020,7 +1044,7 @@ InitializePgBlock(
 
 #ifdef DEBUG
                         vDbgPrint(
-                            "[SHARK] < %p > PspSystemThreadStartup\n",
+                            "[Shark] < %p > PspSystemThreadStartup\n",
                             PgBlock->PspSystemThreadStartup);
 #endif // DEBUG
                     }
@@ -1060,7 +1084,7 @@ InitializePgBlock(
 
 #ifdef DEBUG
                                 vDbgPrint(
-                                    "[SHARK] < %p > KiWaitNever\n",
+                                    "[Shark] < %p > KiWaitNever\n",
                                     PgBlock->KiWaitNever);
 #endif // DEBUG
                             }
@@ -1069,7 +1093,7 @@ InitializePgBlock(
 
 #ifdef DEBUG
                                 vDbgPrint(
-                                    "[SHARK] < %p > KiWaitAlways\n",
+                                    "[Shark] < %p > KiWaitAlways\n",
                                     PgBlock->KiWaitAlways);
 #endif // DEBUG
 
@@ -1090,7 +1114,7 @@ InitializePgBlock(
 
 #ifdef DEBUG
     vDbgPrint(
-        "[SHARK] < %p > MmIsNonPagedSystemAddressValid\n",
+        "[Shark] < %p > MmIsNonPagedSystemAddressValid\n",
         PgBlock->Pool.MmIsNonPagedSystemAddressValid);
 #endif // DEBUG
 
@@ -1108,24 +1132,19 @@ InitializePgBlock(
             NtSection->VirtualAddress +
             max(NtSection->SizeOfRawData, NtSection->Misc.VirtualSize);
 
-        if (GetGpBlock(PgBlock)->BuildNumber >= 18362) {
+        if (GetGpBlock(PgBlock)->BuildNumber >= 15063) {
             TargetPc = ScanBytes(
                 ControlPc,
                 EndToLock,
                 MiGetSystemRegionType);
 
             if (NULL != TargetPc) {
-                TargetPc -= 0xf;
-
-                RtlCopyMemory(
-                    (ptr)&PgBlock->MiGetSystemRegionType,
-                    &TargetPc,
-                    sizeof(ptr));
+                PgBlock->SystemRegionTypeArray = __rva_to_va(TargetPc + 0x13);
 
 #ifdef DEBUG
                 vDbgPrint(
-                    "[SHARK] < %p > MiGetSystemRegionType\n",
-                    PgBlock->MiGetSystemRegionType);
+                    "[Shark] < %p > SystemRegionTypeArray\n",
+                    PgBlock->SystemRegionTypeArray);
 #endif // DEBUG
             }
         }
@@ -1139,15 +1158,19 @@ InitializePgBlock(
             Selector = 1;
         }
         else if (GetGpBlock(PgBlock)->BuildNumber >= 19041 &&
-            GetGpBlock(PgBlock)->BuildNumber < 20295) {
+            GetGpBlock(PgBlock)->BuildNumber < 20000) {
             Selector = 2;
         }
-        else if (GetGpBlock(PgBlock)->BuildNumber >= 20279 &&
-            GetGpBlock(PgBlock)->BuildNumber < 21327) {
+        else if (GetGpBlock(PgBlock)->BuildNumber >= 20000 &&
+            GetGpBlock(PgBlock)->BuildNumber < 21000) {
             Selector = 3;
         }
-        else if (GetGpBlock(PgBlock)->BuildNumber >= 21327) {
+        else if (GetGpBlock(PgBlock)->BuildNumber >= 21000 &&
+            GetGpBlock(PgBlock)->BuildNumber < 22000) {
             Selector = 4;
+        }
+        else if (GetGpBlock(PgBlock)->BuildNumber >= 22000) {
+            Selector = 3;
         }
 
         ControlPc = ScanBytes(
@@ -1163,7 +1186,7 @@ InitializePgBlock(
 
 #ifdef DEBUG
             vDbgPrint(
-                "[SHARK] < %p > PoolBigPageTable\n",
+                "[Shark] < %p > PoolBigPageTable\n",
                 PgBlock->Pool.PoolBigPageTable);
 #endif // DEBUG
 
@@ -1174,70 +1197,102 @@ InitializePgBlock(
 
 #ifdef DEBUG
             vDbgPrint(
-                "[SHARK] < %p > PoolBigPageTableSize\n",
+                "[Shark] < %p > PoolBigPageTableSize\n",
                 PgBlock->Pool.PoolBigPageTableSize);
 #endif // DEBUG
         }
     }
 
-    RtlInitUnicodeString(&RoutineString, L"MmAllocateMappingAddressEx");
-
-    RoutineAddress = MmGetSystemRoutineAddress(&RoutineString);
-
-    if (NULL == RoutineAddress) {
-        RtlInitUnicodeString(&RoutineString, L"MmAllocateMappingAddress");
+    if (GetGpBlock(PgBlock)->BuildNumber < 21000) {
+        RtlInitUnicodeString(&RoutineString, L"MmAllocateMappingAddressEx");
 
         RoutineAddress = MmGetSystemRoutineAddress(&RoutineString);
-    }
 
-    if (NULL != RoutineAddress) {
-        ControlPc = RoutineAddress;
+        if (NULL == RoutineAddress) {
+            RtlInitUnicodeString(&RoutineString, L"MmAllocateMappingAddress");
 
-        while (TRUE) {
-            Length = DetourGetInstructionLength(ControlPc);
-
-            if (1 == Length) {
-                if (0 == _cmpbyte(ControlPc[0], 0xc3)) {
-                    break;
-                }
-            }
-
-            if (7 == Length) {
-                if (0 == _cmpbyte(ControlPc[0], 0x48) &&
-                    0 == _cmpbyte(ControlPc[1], 0x8d) &&
-                    0 == _cmpbyte(ControlPc[2], 0x0d)) {
-                    TargetPc = __rva_to_va(ControlPc + 3);
-
-                    // struct _MI_SYSTEM_PTE_TYPE *
-                    BitMap = TargetPc;
-
-                    PgBlock->SystemPtes.NumberOfPtes = BitMap->SizeOfBitMap * 8;
-#ifdef DEBUG
-                    vDbgPrint(
-                        "[SHARK] < %p > NumberOfPtes\n",
-                        PgBlock->SystemPtes.NumberOfPtes);
-#endif // DEBUG
-
-                    if (GetGpBlock(PgBlock)->BuildNumber < 9600) {
-                        PgBlock->SystemPtes.BasePte =
-                            *(PMMPTE *)((u8ptr)(BitMap + 1) + sizeof(u32) * 2);
-                    }
-                    else {
-                        PgBlock->SystemPtes.BasePte = *(PMMPTE *)(BitMap + 1);
-                    }
-
-#ifdef DEBUG
-                    vDbgPrint(
-                        "[SHARK] < %p > BasePte\n",
-                        PgBlock->SystemPtes.BasePte);
-#endif // DEBUG
-
-                    break;
-                }
-            }
-
-            ControlPc += Length;
+            RoutineAddress = MmGetSystemRoutineAddress(&RoutineString);
         }
+
+        if (NULL != RoutineAddress) {
+            ControlPc = RoutineAddress;
+
+            while (TRUE) {
+                Length = DetourGetInstructionLength(ControlPc);
+
+                if (1 == Length) {
+                    if (0 == _cmpbyte(ControlPc[0], 0xc3)) {
+                        break;
+                    }
+                }
+
+                if (7 == Length) {
+                    if (0 == _cmpbyte(ControlPc[0], 0x48) &&
+                        0 == _cmpbyte(ControlPc[1], 0x8d) &&
+                        0 == _cmpbyte(ControlPc[2], 0x0d)) {
+                        TargetPc = __rva_to_va(ControlPc + 3);
+
+                        // struct _MI_SYSTEM_PTE_TYPE *
+                        BitMap = TargetPc;
+
+                        PgBlock->SystemPtes.NumberOfPtes = BitMap->SizeOfBitMap * 8;
+#ifdef DEBUG
+                        vDbgPrint(
+                            "[Shark] < %p > NumberOfPtes\n",
+                            PgBlock->SystemPtes.NumberOfPtes);
+#endif // DEBUG
+
+                        if (GetGpBlock(PgBlock)->BuildNumber < 9600) {
+                            PgBlock->SystemPtes.BasePte =
+                                *(PMMPTE *)((u8ptr)(BitMap + 1) + sizeof(u32) * 2);
+                        }
+                        else {
+                            PgBlock->SystemPtes.BasePte = *(PMMPTE *)(BitMap + 1);
+                        }
+
+#ifdef DEBUG
+                        vDbgPrint(
+                            "[Shark] < %p > BasePte\n",
+                            PgBlock->SystemPtes.BasePte);
+#endif // DEBUG
+
+                        break;
+                    }
+                }
+
+                ControlPc += Length;
+            }
+        }
+    }
+    else {
+        for (Index = 0;
+            Index < SYSTEM_REGION_TYPE_ARRAY_COUNT;
+            Index++) {
+            if (MiVaKernelStacks ==
+                PgBlock->SystemRegionTypeArray[Index]) {
+                if (NULL == PgBlock->SystemPtes.BasePte) {
+                    PgBlock->SystemPtes.BasePte =
+                        GetPteAddress(__utop((Index | 0xFFFFFFE0) << 0x27));
+                }
+
+                PgBlock->SystemPtes.NumberOfPtes += 0x40000000;
+            }
+            else {
+                if (NULL != PgBlock->SystemPtes.BasePte) {
+                    break;
+                }
+            }
+        }
+
+#ifdef DEBUG
+        vDbgPrint(
+            "[Shark] < %p > BasePte\n",
+            PgBlock->SystemPtes.BasePte);
+
+        vDbgPrint(
+            "[Shark] < %p > NumberOfPtes\n",
+            PgBlock->SystemPtes.NumberOfPtes);
+#endif // DEBUG
     }
 
     RtlCopyMemory(
@@ -1292,13 +1347,23 @@ InitializePgBlock(
         GetGpBlock(PgBlock)->BuildNumber >= 18362 ?
         __utop(PgBlock->_PostKey) : __utop(PgBlock->_PostKey + 0x20);
 
+    RtlInitUnicodeString(&RoutineString, L"MmIsAddressValid");
+
+    PgBlock->MmIsAddressValid = MmGetSystemRoutineAddress(&RoutineString);
+
+#ifdef DEBUG
+    vDbgPrint(
+        "[Shark] < %p > MmIsAddressValid\n",
+        PgBlock->MmIsAddressValid);
+#endif // DEBUG
+
     RtlInitUnicodeString(&RoutineString, L"RtlLookupFunctionEntry");
 
     PgBlock->RtlLookupFunctionEntry = MmGetSystemRoutineAddress(&RoutineString);
 
 #ifdef DEBUG
     vDbgPrint(
-        "[SHARK] < %p > RtlLookupFunctionEntry\n",
+        "[Shark] < %p > RtlLookupFunctionEntry\n",
         PgBlock->RtlLookupFunctionEntry);
 #endif // DEBUG
 
@@ -1308,7 +1373,7 @@ InitializePgBlock(
 
 #ifdef DEBUG
     vDbgPrint(
-        "[SHARK] < %p > RtlVirtualUnwind\n",
+        "[Shark] < %p > RtlVirtualUnwind\n",
         PgBlock->RtlVirtualUnwind);
 #endif // DEBUG
 
@@ -1318,7 +1383,7 @@ InitializePgBlock(
 
 #ifdef DEBUG
     vDbgPrint(
-        "[SHARK] < %p > ExQueueWorkItem\n",
+        "[Shark] < %p > ExQueueWorkItem\n",
         PgBlock->ExQueueWorkItem);
 #endif // DEBUG
 
@@ -1334,7 +1399,7 @@ InitializePgBlock(
 
 #ifdef DEBUG
     vDbgPrint(
-        "[SHARK] < %p > CaptureContext\n",
+        "[Shark] < %p > CaptureContext\n",
         PgBlock->CaptureContext);
 #endif // DEBUG
 
@@ -1359,9 +1424,9 @@ InitializePgBlock(
     // PgBlock->ClearMessage[1] = ClearMessage[1];
 
     RtlCopyMemory(
-    &PgBlock->_ClearMessage[0x80],
-    ClearMessage[2],
-    strlen(ClearMessage[2]));
+        &PgBlock->_ClearMessage[0x80],
+        ClearMessage[2],
+        strlen(ClearMessage[2]));
 
     PgBlock->ClearMessage[2] = &PgBlock->_ClearMessage[0x80];
 
@@ -1380,7 +1445,7 @@ InitializePgBlock(
 
 #ifdef DEBUG
     vDbgPrint(
-        "[SHARK] < %p > FreeWorker\n",
+        "[Shark] < %p > FreeWorker\n",
         PgBlock->FreeWorker);
 #endif // DEBUG
 
@@ -1396,7 +1461,7 @@ InitializePgBlock(
 
 #ifdef DEBUG
     vDbgPrint(
-        "[SHARK] < %p > ClearCallback\n",
+        "[Shark] < %p > ClearCallback\n",
         PgBlock->ClearCallback);
 #endif // DEBUG
 }
@@ -1467,7 +1532,7 @@ PgSetNewEntry(
 
     RtlCopyMemory(
         FieldBuffer,
-        (u8ptr)PatchGuardContext + ALIGN_DOWN(PgBlock->OffsetEntryPoint, u),
+        (u8ptr)PatchGuardContext + (PgBlock->OffsetEntryPoint & ~7),
         sizeof(FieldBuffer));
 
     LastRorKey = RorKey;
@@ -1485,9 +1550,7 @@ PgSetNewEntry(
         FieldBuffer[Index] = FieldBuffer[Index] ^ LastRorKey;
     }
 
-    RvaOfEntry =
-        *(u32ptr)((u8ptr)FieldBuffer
-            + ALIGN_DOWN(PgBlock->OffsetEntryPoint, u));
+    RvaOfEntry = *(u32ptr)((u8ptr)FieldBuffer + (PgBlock->OffsetEntryPoint & 7));
 
     // copy PatchGuard entry head code to temp bufer and decode
 
@@ -1495,7 +1558,7 @@ PgSetNewEntry(
 
     RtlCopyMemory(
         FieldBuffer,
-        (u8ptr)PatchGuardContext + ALIGN_DOWN(RvaOfEntry, u),
+        (u8ptr)PatchGuardContext + (RvaOfEntry & ~7),
         sizeof(FieldBuffer));
 
     LastRorKey = RorKey;
@@ -1515,9 +1578,9 @@ PgSetNewEntry(
 
     // set temp buffer PatchGuard entry head jmp to PgClearCallback and encrypt
 
-    Pointer = (u8ptr)FieldBuffer + ALIGN_DOWN(RvaOfEntry, u);
+    Pointer = (u8ptr)FieldBuffer + (RvaOfEntry & 7);
 
-    BuildJumpCode(&Pointer, &Object->Body);
+    LockedBuildJumpCode(&Pointer, &Object->Body);
 
     while (Index--) {
         FieldBuffer[Index] = FieldBuffer[Index] ^ LastRorKey;
@@ -1528,13 +1591,13 @@ PgSetNewEntry(
     // when PatchGuard code decrypt self jmp PgClearCallback.
 
     RtlCopyMemory(
-        (u8ptr)PatchGuardContext + ALIGN_DOWN(RvaOfEntry, u),
+        (u8ptr)PatchGuardContext + (RvaOfEntry & ~7),
         FieldBuffer,
         sizeof(FieldBuffer));
 
 #ifdef DEBUG
     vDbgPrint(
-        "[SHARK] < %p > set new entry for encrypted context\n",
+        "[Shark] < %p > set new entry for encrypted context\n",
         Object);
 #endif // DEBUG
 }
@@ -1614,7 +1677,7 @@ PgSetNewEntryWithBtc(
     if (0 == Index) {
 #ifdef DEBUG
         vDbgPrint(
-            "[SHARK] < %p > entrypoint not found!\n",
+            "[Shark] < %p > entrypoint not found!\n",
             Object);
 #endif // DEBUG
     }
@@ -1639,7 +1702,7 @@ PgSetNewEntryWithBtc(
 
         Pointer = (PGUARD_BODY)((u8ptr)FieldBuffer + sizeof(u) - AlignOffset);
 
-        BuildJumpCode(&Pointer, &Object->Body);
+        LockedBuildJumpCode(&Pointer, &Object->Body);
 
         RorKey = LastRorKey;
         Index = LastRorKeyOffset;
@@ -1656,7 +1719,7 @@ PgSetNewEntryWithBtc(
 
 #ifdef DEBUG
         vDbgPrint(
-            "[SHARK] < %p > set new entry for btc encrypted context\n",
+            "[Shark] < %p > set new entry for btc encrypted context\n",
             Object);
 #endif // DEBUG
     }
@@ -1880,14 +1943,14 @@ PgSetTimerNewEntry(
 
     Pointer = &Object->Context[2];
 
-    BuildJumpCode(&Pointer, &Object->Body);
+    LockedBuildJumpCode(&Pointer, &Object->Body);
 
     Object->Context[2] ^= Object->Key;
     Object->Context[3] ^= Object->Key;
 
 #ifdef DEBUG
     vDbgPrint(
-        "[SHARK] < %p > set new entry for double encrypted context\n",
+        "[Shark] < %p > set new entry for double encrypted context\n",
         Object);
 #endif // DEBUG
 
@@ -2017,14 +2080,14 @@ PgSetBranchNewEntry(
 
     Pointer = &Object->Context[2];
 
-    BuildJumpCode(&Pointer, &Object->Body);
+    LockedBuildJumpCode(&Pointer, &Object->Body);
 
     Object->Context[2] ^= Object->Key;
     Object->Context[3] ^= Object->Key;
 
 #ifdef DEBUG
     vDbgPrint(
-        "[SHARK] < %p > set new entry for double encrypted context\n",
+        "[Shark] < %p > set new entry for double encrypted context\n",
         Object);
 #endif // DEBUG
 
@@ -2177,24 +2240,6 @@ PgCompareFields(
     PPGOBJECT Object = NULL;
     b Result = 0;
 
-    if (0 != PgBlock->Repeat) {
-        if (FALSE == IsListEmpty(&PgBlock->ObjectList)) {
-            Object = CONTAINING_RECORD(
-                PgBlock->ObjectList.Flink,
-                PGOBJECT,
-                Entry);
-
-            while (&Object->Entry != &PgBlock->ObjectList) {
-                if (BaseAddress == Object->BaseAddress)return;
-
-                Object = CONTAINING_RECORD(
-                    Object->Entry.Flink,
-                    PGOBJECT,
-                    Entry);
-            }
-        }
-    }
-
     if (FALSE != MmIsAddressValid(BaseAddress)) {
         if ((__ptou(PgBlock) >= __ptou(BaseAddress)) &&
             (__ptou(PgBlock) < (__ptou(BaseAddress) + RegionSize))) {
@@ -2211,7 +2256,7 @@ PgCompareFields(
                 if (NULL != Object) {
 #ifdef DEBUG
                     vDbgPrint(
-                        "[SHARK] < %p > found encrypted context < %p - %08x >\n",
+                        "[Shark] < %p > found encrypted context < %p - %08x >\n",
                         Object->Context,
                         BaseAddress,
                         RegionSize);
@@ -2250,7 +2295,7 @@ PgCompareFields(
 
 #ifdef DEBUG
                             vDbgPrint(
-                                "[SHARK] < %p > found declassified context\n",
+                                "[Shark] < %p > found declassified context\n",
                                 Context);
 #endif // DEBUG
                             break;
@@ -2280,7 +2325,7 @@ PgCompareFields(
 
 #ifdef DEBUG
                                     vDbgPrint(
-                                        "[SHARK] < %p > found encrypted context < %p - %08x >\n",
+                                        "[Shark] < %p > found encrypted context < %p - %08x >\n",
                                         Context,
                                         BaseAddress,
                                         RegionSize);
@@ -2319,7 +2364,7 @@ PgCompareFields(
 
 #ifdef DEBUG
                                             vDbgPrint(
-                                                "[SHARK] < %p > first rorkey\n",
+                                                "[Shark] < %p > first rorkey\n",
                                                 RorKey);
 #endif // DEBUG
                                             PgSetNewEntry(PgBlock, Object, Context, RorKey);
@@ -2463,13 +2508,11 @@ PgClearSystemPtesEncryptedContext(
     NumberOfPtes = PgBlock->SystemPtes.NumberOfPtes;
 
 #ifdef DEBUG
-    if (0 == PgBlock->Repeat) {
-        vDbgPrint(
-            "[SHARK] < %p > SystemPtes < %p - %p >\n",
-            KeGetCurrentProcessorNumber(),
-            PgBlock->SystemPtes.BasePte,
-            PgBlock->SystemPtes.BasePte + NumberOfPtes);
-    }
+    vDbgPrint(
+        "[Shark] < %p > SystemPtes < %p - %p >\n",
+        KeGetCurrentProcessorNumber(),
+        PgBlock->SystemPtes.BasePte,
+        PgBlock->SystemPtes.BasePte + NumberOfPtes);
 #endif // DEBUG
 
     BitMapSize =
@@ -2506,9 +2549,10 @@ PgClearSystemPtesEncryptedContext(
 
                 if (StartingRunIndex -
                     HintIndex >= BYTES_TO_PAGES(PgBlock->SizeINITKDBG)) {
+                    /*
 #ifdef DEBUG
                     vDbgPrint(
-                        "[SHARK] < %p > scan < %p - %08x > < %p, %p, %p, %p, ...>\n",
+                        "[Shark] < %p > scan < %p - %08x > < %p, %p, %p, %p...>\n",
                         KeGetCurrentProcessorNumber(),
                         GetVaMappedByPte(PgBlock->SystemPtes.BasePte + HintIndex),
                         (StartingRunIndex - HintIndex) * PAGE_SIZE,
@@ -2517,6 +2561,7 @@ PgClearSystemPtesEncryptedContext(
                         __rduptr(__ptou(GetVaMappedByPte(PgBlock->SystemPtes.BasePte + HintIndex)) + 0x10),
                         __rduptr(__ptou(GetVaMappedByPte(PgBlock->SystemPtes.BasePte + HintIndex)) + 0x18));
 #endif // DEBUG
+                    */
 
                     PgCompareFields(
                         PgBlock,
@@ -2551,13 +2596,11 @@ PgClearPoolEncryptedContext(
         sizeof(POOL_BIG_PAGESEX) : sizeof(POOL_BIG_PAGES);
 
 #ifdef DEBUG
-    if (0 == PgBlock->Repeat) {
-        vDbgPrint(
-            "[SHARK] < %p > BigPool < %p - %08x >\n",
-            KeGetCurrentProcessorNumber(),
-            *PgBlock->Pool.PoolBigPageTable,
-            *PgBlock->Pool.PoolBigPageTableSize);
-    }
+    vDbgPrint(
+        "[Shark] < %p > BigPool < %p - %08x >\n",
+        KeGetCurrentProcessorNumber(),
+        *PgBlock->Pool.PoolBigPageTable,
+        *PgBlock->Pool.PoolBigPageTableSize);
 #endif // DEBUG
 
     for (Index = 0;
@@ -2590,9 +2633,10 @@ PgClearPoolEncryptedContext(
                         }
                     }
 
+                    /*
 #ifdef DEBUG
                     vDbgPrint(
-                        "[SHARK] < %p > scan < %p - %08x > < %p, %p, %p, %p, ...>\n",
+                        "[Shark] < %p > scan < %p - %08x > < %p, %p, %p, %p...>\n",
                         KeGetCurrentProcessorNumber(),
                         PAGE_ALIGN(PoolBigPage->Va),
                         PoolBigPage->NumberOfPages,
@@ -2601,6 +2645,7 @@ PgClearPoolEncryptedContext(
                         __rduptr(__ptou(PAGE_ALIGN(PoolBigPage->Va)) + 0x10),
                         __rduptr(__ptou(PAGE_ALIGN(PoolBigPage->Va)) + 0x18));
 #endif // DEBUG
+                    */
 
                     PgCompareFields(
                         PgBlock,
@@ -2651,7 +2696,7 @@ PgLocatePoolObject(
 
 #ifdef DEBUG
                         GetGpBlock(PgBlock)->vDbgPrint(
-                            "[SHARK] < %p > found region in pool < %p - %08x >\n",
+                            "[Shark] < %p > found region in pool < %p - %08x >\n",
                             Establisher,
                             Object->BaseAddress,
                             Object->RegionSize);
@@ -2740,7 +2785,7 @@ PgLocateSystemPtesObject(
                     }
 #ifdef DEBUG
                     vDbgPrint(
-                        "[SHARK] < %p > found region in system ptes < %p - %08x >\n",
+                        "[Shark] < %p > found region in system ptes < %p - %08x >\n",
                         Establisher,
                         Object->BaseAddress,
                         Object->RegionSize);
@@ -2889,7 +2934,8 @@ PgCheckAllWorkerThread(
                                     &ImageBase,
                                     NULL);
 
-                                if (NULL != FunctionEntry) {
+                                if (NULL != FunctionEntry &&
+                                    FALSE != MmIsAddressValid((ptr)EstablisherFrame)) {
                                     RtlVirtualUnwind(
                                         UNW_FLAG_NHANDLER,
                                         ImageBase,
@@ -2914,7 +2960,7 @@ PgCheckAllWorkerThread(
                             if (0 != Context->ContextRecord.Rip) {
 #ifdef DEBUG
                                 vDbgPrint(
-                                    "[SHARK] < %p > found noimage return address in worker thread stack\n",
+                                    "[Shark] < %p > found noimage return address in worker thread stack\n",
                                     Context->ContextRecord.Rip);
 #endif // DEBUG
 
@@ -2954,7 +3000,7 @@ PgCheckAllWorkerThread(
 
 #ifdef DEBUG
                                                 vDbgPrint(
-                                                    "[SHARK] < %p > insert worker thread check code\n",
+                                                    "[Shark] < %p > insert worker thread check code\n",
                                                     Object);
 #endif // DEBUG
                                             }
@@ -3019,88 +3065,86 @@ PgClearWorker(
 
     Context = Argument;
 
-    if (0 == Context->PgBlock->Repeat) {
-        InitializePgBlock(Context->PgBlock);
+    InitializePgBlock(Context->PgBlock);
 
-        /*
-        if (os build >= 9600){
-            // Header->Type = 0x15
-            // Header->Hand = 0xac
+    /*
+    if (os build >= 9600){
+        // Header->Type = 0x15
+        // Header->Hand = 0xac
 
-            PgBlock->WorkerContext = struct _DISPATCHER_HEADER
-        }
-        else {
-            // CriticalWorkQueue = 0
-            // DelayedWorkQueue = 1
+        PgBlock->WorkerContext = struct _DISPATCHER_HEADER
+    }
+    else {
+        // CriticalWorkQueue = 0
+        // DelayedWorkQueue = 1
 
-            PgBlock->WorkerContext = enum _WORK_QUEUE_TYPE
-        }
-        */
+        PgBlock->WorkerContext = enum _WORK_QUEUE_TYPE
+    }
+    */
 
-        InitialStack = IoGetInitialStack();
+    InitialStack = IoGetInitialStack();
 
-        if (GetGpBlock(Context->PgBlock)->BuildNumber >= 9600) {
-            while ((u64)InitialStack != (u64)&Argument) {
-                Header = *(ptr *)InitialStack;
+    if (GetGpBlock(Context->PgBlock)->BuildNumber >= 9600) {
+        while ((u64)InitialStack != (u64)&Argument) {
+            Header = *(ptr *)InitialStack;
 
-                if (FALSE != MmIsAddressValid(Header)) {
-                    if (FALSE != MmIsAddressValid((u8ptr)(Header + 1) - 1)) {
-                        if (0x15 == Header->Type &&
-                            0xac == Header->Hand) {
-                            Context->PgBlock->WorkerContext = Header;
+            if (FALSE != MmIsAddressValid(Header)) {
+                if (FALSE != MmIsAddressValid((u8ptr)(Header + 1) - 1)) {
+                    if (0x15 == Header->Type &&
+                        0xac == Header->Hand) {
+                        Context->PgBlock->WorkerContext = Header;
 
-                            break;
-                        }
+                        break;
                     }
                 }
-
-                InitialStack--;
-            }
-        }
-        else {
-            Context->PgBlock->WorkerContext = UlongToPtr(CriticalWorkQueue);
-        }
-
-        if (NT_SUCCESS(ZwQueryInformationThread(
-            ZwCurrentThread(),
-            ThreadQuerySetWin32StartAddress,
-            &Context->PgBlock->ExpWorkerThread,
-            sizeof(ptr),
-            &ReturnLength))) {
-            for (Index = 0;
-                Index < GetGpBlock(Context->PgBlock)->DebuggerDataBlock.SizeEThread;
-                Index += 8) {
-                if ((u)Context->PgBlock->ExpWorkerThread ==
-                    __rdsptr((u8ptr)KeGetCurrentThread() + Index)) {
-                    GetGpBlock(Context->PgBlock)->OffsetKThreadWin32StartAddress = Index;
-
-                    break;
-                }
             }
 
-            if (GetGpBlock(Context->PgBlock)->BuildNumber >= 18362) {
-                TargetPc = (u8ptr)Context->PgBlock->ExpWorkerThread;
+            InitialStack--;
+        }
+    }
+    else {
+        Context->PgBlock->WorkerContext = UlongToPtr(CriticalWorkQueue);
+    }
 
-                while (TRUE) {
-                    Length = DetourGetInstructionLength(TargetPc);
+    if (NT_SUCCESS(ZwQueryInformationThread(
+        ZwCurrentThread(),
+        ThreadQuerySetWin32StartAddress,
+        &Context->PgBlock->ExpWorkerThread,
+        sizeof(ptr),
+        &ReturnLength))) {
+        for (Index = 0;
+            Index < GetGpBlock(Context->PgBlock)->DebuggerDataBlock.SizeEThread;
+            Index += 8) {
+            if ((u)Context->PgBlock->ExpWorkerThread ==
+                __rdsptr((u8ptr)KeGetCurrentThread() + Index)) {
+                GetGpBlock(Context->PgBlock)->OffsetKThreadWin32StartAddress = Index;
 
-                    if (6 == Length) {
-                        if (0 == _cmpbyte(TargetPc[0], 0x8b) &&
-                            0 == _cmpbyte(TargetPc[1], 0x83)) {
-                            Context->PgBlock->OffsetSameThreadPassive = *(u32ptr)(TargetPc + 2);
+                break;
+            }
+        }
+
+        if (GetGpBlock(Context->PgBlock)->BuildNumber >= 18362) {
+            TargetPc = (u8ptr)Context->PgBlock->ExpWorkerThread;
+
+            while (TRUE) {
+                Length = DetourGetInstructionLength(TargetPc);
+
+                if (6 == Length) {
+                    if (0 == _cmpbyte(TargetPc[0], 0x8b) &&
+                        0 == _cmpbyte(TargetPc[1], 0x83)) {
+                        Context->PgBlock->OffsetSameThreadPassive = *(u32ptr)(TargetPc + 2);
 
 #ifdef DEBUG
-                            vDbgPrint(
-                                "[SHARK] < %p > OffsetSameThreadPassive\n",
-                                Context->PgBlock->OffsetSameThreadPassive);
+                        vDbgPrint(
+                            "[Shark] < %p > OffsetSameThreadPassive\n",
+                            Context->PgBlock->OffsetSameThreadPassive);
 #endif // DEBUG
 
-                            break;
-                        }
+                        break;
                     }
-
-                    TargetPc += Length;
                 }
+
+                TargetPc += Length;
             }
         }
     }
@@ -3122,15 +3166,15 @@ PgClearWorker(
             NULL == Context->PgBlock->SystemPtes.BasePte ||
             NULL == Context->PgBlock->MmAllocateIndependentPages ||
             NULL == Context->PgBlock->MmFreeIndependentPages ||
-            NULL == Context->PgBlock->MmSetPageProtection ||
-            NULL == Context->PgBlock->KiWaitNever ||
-            NULL == Context->PgBlock->KiWaitAlways) {
+            NULL == Context->PgBlock->MmSetPageProtection) {
             Chance = FALSE;
         }
     }
 
     if (GetGpBlock(Context->PgBlock)->BuildNumber >= 9600) {
-        if (0 == Context->PgBlock->WorkerContext) {
+        if (0 == Context->PgBlock->WorkerContext ||
+            NULL == Context->PgBlock->KiWaitNever ||
+            NULL == Context->PgBlock->KiWaitAlways) {
             Chance = FALSE;
         }
     }
@@ -3166,18 +3210,14 @@ PgClear(
 
     Context.PgBlock = PgBlock;
 
-    if (PgBlock->Cleared < PG_MAXIMUM_CONTEXT_COUNT) {
-        KeInitializeEvent(&Context.Notify, SynchronizationEvent, FALSE);
-        ExInitializeWorkItem(&Context.Worker, PgClearWorker, &Context);
-        ExQueueWorkItem(&Context.Worker, CriticalWorkQueue);
+    KeInitializeEvent(&Context.Notify, SynchronizationEvent, FALSE);
+    ExInitializeWorkItem(&Context.Worker, PgClearWorker, &Context);
+    ExQueueWorkItem(&Context.Worker, CriticalWorkQueue);
 
-        KeWaitForSingleObject(
-            &Context.Notify,
-            Executive,
-            KernelMode,
-            FALSE,
-            NULL);
-
-        PgBlock->Repeat++;
-    }
+    KeWaitForSingleObject(
+        &Context.Notify,
+        Executive,
+        KernelMode,
+        FALSE,
+        NULL);
 }
