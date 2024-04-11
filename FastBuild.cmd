@@ -19,9 +19,7 @@
 @rem set LABS=%~dp0..\
 @rem cd /d "%LABS%"
 @rem git clone https://github.com/9176324/Shark
-@rem git clone https://github.com/9176324/WRK
-@rem git clone https://github.com/9176324/WINDDK
-@rem git clone https://github.com/9176324/MSVC
+@rem git clone https://github.com/9176324/MiniSDK
 
 @set SLND=%~dp0
 @if not exist "%SLND%Build\Bins\AMD64" md "%SLND%Build\Bins\AMD64"
@@ -36,11 +34,11 @@
 @if exist "%PROGRAMFILES(X86)%" (goto x64x86) ELSE (goto x86x86)
 
 :x86x86
-@set path=C:\Windows;C:\Windows\System32;%~dp0\..\MSVC\Hostx86\x86
+@set path=C:\Windows;C:\Windows\System32;%~dp0..\MiniSDK\bin\Hostx86\x86
 @goto x86
 
 :x64x86
-@set path=C:\Windows;C:\Windows\System32;%~dp0\..\MSVC\Hostx64\x86
+@set path=C:\Windows;C:\Windows\System32;%~dp0..\MiniSDK\bin\Hostx64\x86
 @goto x86
 
 :x86
@@ -58,11 +56,11 @@
 @if exist "%PROGRAMFILES(X86)%" (goto x64x64) ELSE (goto x86x64)
 
 :x86x64
-@set path=C:\Windows;C:\Windows\System32;%~dp0\..\MSVC\Hostx86\x64
+@set path=C:\Windows;C:\Windows\System32;%~dp0..\MiniSDK\bin\Hostx86\x64
 @goto x64
 
 :x64x64
-@set path=C:\Windows;C:\Windows\System32;%~dp0\..\MSVC\Hostx64\x64
+@set path=C:\Windows;C:\Windows\System32;%~dp0..\MiniSDK\bin\Hostx64\x64
 @goto x64
 
 :x64
